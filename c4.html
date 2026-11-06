@@ -1,0 +1,798 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Generic Billing Architecture</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column of stacked C4 levels; each diagram is a wide figure that scrolls sideways on phones */
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --fg: #17212b;
+  --fg-2: #33404d;
+  --muted: #5d6b79;
+  --rule: #dce2e8;
+  --edge: #74828f;
+  --box: #8b98a5;
+  --ext: #e9edf1;
+  --person: #eef1f6;
+  --accent: #0e7c7b;
+  --accent-tint: rgba(14, 124, 123, 0.10);
+  --good: #2f7d3a;
+  --warn: #b26a00;
+  --crit: #b3362f;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1318; --surface: #151c23; --fg: #e4eaf0; --fg-2: #c3cdd7; --muted: #8e9cab;
+    --rule: #26313c; --edge: #7d8b99; --box: #5f6e7d; --ext: #1d262f; --person: #1b232c;
+    --accent: #4cbab7; --accent-tint: rgba(76, 186, 183, 0.13);
+    --good: #66c174; --warn: #e3a248; --crit: #ec7a72;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1318; --surface: #151c23; --fg: #e4eaf0; --fg-2: #c3cdd7; --muted: #8e9cab;
+  --rule: #26313c; --edge: #7d8b99; --box: #5f6e7d; --ext: #1d262f; --person: #1b232c;
+  --accent: #4cbab7; --accent-tint: rgba(76, 186, 183, 0.13);
+  --good: #66c174; --warn: #e3a248; --crit: #ec7a72;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 40px 64px; display: grid; gap: 48px; }
+header { display: grid; gap: 14px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; font-weight: 600; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+.lede { margin: 0; max-width: 68ch; color: var(--fg-2); }
+nav { display: flex; flex-wrap: wrap; gap: 8px; }
+nav a {
+  font-family: var(--mono); font-size: 12.5px; color: var(--fg); text-decoration: none;
+  border: 1px solid var(--rule); background: var(--surface); padding: 5px 10px; border-radius: 6px;
+}
+nav a:hover, nav a:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.sw { width: 22px; height: 14px; border-radius: 3px; display: inline-block; border: 1.25px solid var(--box); background: var(--surface); }
+.sw.focus { background: var(--accent-tint); border: 2px solid var(--accent); }
+.sw.ext { background: var(--ext); }
+.sw.person { background: var(--person); border-radius: 7px; }
+.sw.bound { background: transparent; border: 1.25px dashed var(--muted); }
+section { display: grid; gap: 14px; scroll-margin-top: 16px; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.level { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--accent); }
+h2 { font-size: 21px; font-weight: 600; margin: 0; }
+figure { margin: 0; display: grid; gap: 10px; min-width: 0; }
+.fig { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig svg { display: block; width: 100%; min-width: 980px; height: auto; font-family: var(--sans); }
+figcaption { color: var(--fg-2); max-width: 78ch; font-size: 14.5px; }
+figcaption code { font-family: var(--mono); font-size: 13px; color: var(--fg); background: var(--ext); padding: 1px 5px; border-radius: 4px; }
+
+/* SVG roles */
+.n-int { fill: var(--surface); stroke: var(--box); stroke-width: 1.25; }
+.n-ext { fill: var(--ext); stroke: var(--box); stroke-width: 1.25; }
+.n-person { fill: var(--person); stroke: var(--box); stroke-width: 1.25; }
+.n-focus { fill: var(--accent-tint); stroke: var(--accent); stroke-width: 2; }
+.bound { fill: none; stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 7 5; }
+.edge { fill: none; stroke: var(--edge); stroke-width: 1.25; }
+.ah { fill: var(--edge); }
+.sep { stroke: var(--accent); stroke-width: 1; opacity: .5; }
+.t-name { font-size: 14px; font-weight: 600; fill: var(--fg); }
+.t-big { font-size: 17px; font-weight: 600; fill: var(--fg); }
+.t-tag { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+.t-body { font-size: 12px; fill: var(--fg-2); }
+.t-strong { font-size: 12px; font-weight: 600; fill: var(--accent); }
+.t-edge { font-size: 11.5px; fill: var(--muted); }
+.t-bound { font-size: 13px; font-weight: 600; fill: var(--muted); }
+.t-mono { font-family: var(--mono); font-size: 11px; fill: var(--fg-2); }
+.pill { fill: var(--surface); stroke: var(--box); stroke-width: 1; }
+.pill.good { fill: color-mix(in srgb, var(--good) 14%, var(--surface)); stroke: var(--good); }
+.pill.warn { fill: color-mix(in srgb, var(--warn) 14%, var(--surface)); stroke: var(--warn); }
+.pill.crit { fill: color-mix(in srgb, var(--crit) 14%, var(--surface)); stroke: var(--crit); }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 14px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+thead th { font-weight: 600; color: var(--fg); }
+tbody th { font-weight: 500; color: var(--fg-2); white-space: nowrap; }
+tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+td code { font-family: var(--mono); font-size: 13px; }
+.note { margin: 0; color: var(--fg-2); max-width: 78ch; font-size: 14.5px; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">C4 model · Context → Container → Component → Deployment</div>
+    <h1>Generic Billing System</h1>
+    <p class="lede">Billing prices usage and runs the financial workflow for many kinds of resource-rental services. Client Systems keep full control of Resource, Order and Execution; Billing only publishes status through APIs, events and webhooks. Growing to ten times the target load takes added capacity, with no change to the API or event contract.</p>
+    <nav aria-label="Diagrams">
+      <a href="#c1">C1 Context</a>
+      <a href="#c2">C2 Container</a>
+      <a href="#c3-ledger">C3 Wallet &amp; Ledger</a>
+      <a href="#c3-webhook">C3 Webhook Dispatcher</a>
+      <a href="#deployment">Deployment</a>
+    </nav>
+    <div class="legend" aria-label="Legend">
+      <span><i class="sw focus"></i>Focus of the diagram</span>
+      <span><i class="sw"></i>Internal container / component</span>
+      <span><i class="sw ext"></i>External system / out-of-scope container</span>
+      <span><i class="sw person"></i>Person</span>
+      <span><i class="sw bound"></i>System boundary</span>
+    </div>
+  </header>
+
+  <!-- ===================== C1 ===================== -->
+  <section id="c1">
+    <div class="sec-head"><span class="level">C1</span><h2>System Context</h2></div>
+    <figure>
+      <div class="fig">
+        <svg viewBox="0 0 1160 500" role="img" aria-label="C1: Billing receives usage and reservations from Client Systems, returns status via webhooks, and integrates with a Payment Gateway, Identity Provider and ERP">
+          <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs>
+
+          <!-- edges -->
+          <path class="edge" d="M272 85H520V200" marker-end="url(#a1)"/>
+          <path class="edge" d="M152 130V200" marker-end="url(#a1)"/>
+          <path class="edge" d="M690 130V200" marker-end="url(#a1)"/>
+          <path class="edge" d="M272 316H432" marker-end="url(#a1)"/>
+          <path class="edge" d="M432 400H272" marker-end="url(#a1)"/>
+          <path class="edge" d="M752 228H900" marker-end="url(#a1)"/>
+          <path class="edge" d="M900 256H752" marker-end="url(#a1)"/>
+          <path class="edge" d="M752 336H900" marker-end="url(#a1)"/>
+          <path class="edge" d="M752 432H900" marker-end="url(#a1)"/>
+
+          <text class="t-edge" x="396" y="77" text-anchor="middle">top up, view balance, invoices</text>
+          <text class="t-edge" x="160" y="170">uses services</text>
+          <text class="t-edge" x="698" y="170">Admin API · HTTPS</text>
+          <text class="t-edge" x="352" y="266" text-anchor="middle">REST API · Event</text>
+          <text class="t-edge" x="352" y="282" text-anchor="middle">estimate, reserve,</text>
+          <text class="t-edge" x="352" y="298" text-anchor="middle">usage, commit</text>
+          <text class="t-edge" x="358" y="420" text-anchor="middle">Webhook (HMAC-signed)</text>
+          <text class="t-edge" x="352" y="436" text-anchor="middle">payment.failed,</text>
+          <text class="t-edge" x="352" y="452" text-anchor="middle">balance.insufficient</text>
+          <text class="t-edge" x="826" y="220" text-anchor="middle">create payment, refund</text>
+          <text class="t-edge" x="826" y="274" text-anchor="middle">signed result callback</text>
+          <text class="t-edge" x="826" y="328" text-anchor="middle">validate token</text>
+          <text class="t-edge" x="826" y="424" text-anchor="middle">journals, invoices</text>
+
+          <!-- people -->
+          <rect class="n-person" x="32" y="40" width="240" height="90" rx="22"/>
+          <text class="t-name" x="152" y="66" text-anchor="middle">Customer (Tenant)</text>
+          <text class="t-tag" x="152" y="83" text-anchor="middle">[Person]</text>
+          <text class="t-body" x="152" y="102" text-anchor="middle">Tops up, views balance,</text>
+          <text class="t-body" x="152" y="118" text-anchor="middle">invoices, requests refunds</text>
+
+          <rect class="n-person" x="580" y="40" width="220" height="90" rx="22"/>
+          <text class="t-name" x="690" y="66" text-anchor="middle">Finance Admin</text>
+          <text class="t-tag" x="690" y="83" text-anchor="middle">[Person]</text>
+          <text class="t-body" x="690" y="102" text-anchor="middle">Price plans, reconciliation,</text>
+          <text class="t-body" x="690" y="118" text-anchor="middle">refund approval</text>
+
+          <!-- client systems (stacked = many) -->
+          <rect class="n-ext" x="44" y="190" width="240" height="272" rx="8"/>
+          <rect class="n-ext" x="38" y="195" width="240" height="272" rx="8"/>
+          <rect class="n-ext" x="32" y="200" width="240" height="272" rx="8"/>
+          <text class="t-name" x="152" y="232" text-anchor="middle">Client Systems</text>
+          <text class="t-tag" x="152" y="250" text-anchor="middle">[External System, N systems]</text>
+          <text class="t-body" x="152" y="290" text-anchor="middle">e.g. GPU compute, VM, storage</text>
+          <text class="t-body" x="152" y="336" text-anchor="middle">Own Resource, Order,</text>
+          <text class="t-body" x="152" y="352" text-anchor="middle">Execution, Queue</text>
+          <text class="t-body" x="152" y="388" text-anchor="middle">Decide start, renew,</text>
+          <text class="t-body" x="152" y="404" text-anchor="middle">throttle, suspend service</text>
+
+          <!-- billing -->
+          <rect class="n-focus" x="432" y="200" width="320" height="272" rx="8"/>
+          <text class="t-big" x="592" y="234" text-anchor="middle">Generic Billing System</text>
+          <text class="t-tag" x="592" y="253" text-anchor="middle">[Software System]</text>
+          <text class="t-body" x="592" y="286" text-anchor="middle">Pricing Engine · Usage Metering</text>
+          <text class="t-body" x="592" y="306" text-anchor="middle">Cost Estimation · Balance Reservation</text>
+          <text class="t-body" x="592" y="326" text-anchor="middle">Wallet · Ledger · Charge · Invoice</text>
+          <text class="t-body" x="592" y="346" text-anchor="middle">Payment · Refund · Prepaid / Postpaid</text>
+          <text class="t-body" x="592" y="366" text-anchor="middle">Status via API, Event, Webhook</text>
+          <line class="sep" x1="456" y1="398" x2="728" y2="398"/>
+          <text class="t-strong" x="592" y="428" text-anchor="middle">Never acts on</text>
+          <text class="t-strong" x="592" y="446" text-anchor="middle">Client resources</text>
+
+          <!-- external right -->
+          <rect class="n-ext" x="900" y="200" width="228" height="80" rx="8"/>
+          <text class="t-name" x="1014" y="228" text-anchor="middle">Payment Gateway</text>
+          <text class="t-tag" x="1014" y="245" text-anchor="middle">[External System]</text>
+          <text class="t-body" x="1014" y="264" text-anchor="middle">Cards, e-wallets, bank transfer</text>
+
+          <rect class="n-ext" x="900" y="296" width="228" height="80" rx="8"/>
+          <text class="t-name" x="1014" y="324" text-anchor="middle">Identity Provider</text>
+          <text class="t-tag" x="1014" y="341" text-anchor="middle">[External System]</text>
+          <text class="t-body" x="1014" y="360" text-anchor="middle">OAuth2 / OIDC</text>
+
+          <rect class="n-ext" x="900" y="392" width="228" height="80" rx="8"/>
+          <text class="t-name" x="1014" y="420" text-anchor="middle">Accounting / ERP</text>
+          <text class="t-tag" x="1014" y="437" text-anchor="middle">[External System]</text>
+          <text class="t-body" x="1014" y="456" text-anchor="middle">General ledger, reporting</text>
+        </svg>
+      </div>
+      <figcaption>The main integration runs both ways with Client Systems: clients send estimates, reservations, usage and commits; Billing returns descriptive status events such as <code>payment.failed</code>, <code>balance.insufficient</code> and <code>reservation.expired</code>. Whether to suspend or renew a resource is the client’s decision.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===================== C2 ===================== -->
+  <section id="c2">
+    <div class="sec-head"><span class="level">C2</span><h2>Container</h2></div>
+    <figure>
+      <div class="fig">
+        <svg viewBox="0 0 1180 1236" role="img" aria-label="C2: every financial command goes through Wallet &amp; Ledger on the account's shard; Usage Writer and Rating Worker are separate; three logical stores each have an outbox relayed to Kafka">
+          <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs>
+
+          <!-- boundary -->
+          <rect class="bound" x="16" y="144" width="1148" height="968" rx="12"/>
+          <text class="t-bound" x="72" y="170">Generic Billing System</text>
+          <text class="t-tag" x="242" y="170">[Software System]</text>
+
+          <!-- external top -->
+          <rect class="n-ext" x="72" y="24" width="496" height="80" rx="8"/>
+          <text class="t-name" x="320" y="52" text-anchor="middle">Client Systems</text>
+          <text class="t-tag" x="320" y="69" text-anchor="middle">[External System]</text>
+          <text class="t-body" x="320" y="89" text-anchor="middle">Owns Resource / Order / Execution, receives webhooks</text>
+
+          <rect class="n-person" x="644" y="24" width="210" height="80" rx="22"/>
+          <text class="t-name" x="749" y="52" text-anchor="middle">Customers &amp; Admins</text>
+          <text class="t-tag" x="749" y="69" text-anchor="middle">[Person]</text>
+          <text class="t-body" x="749" y="89" text-anchor="middle">Browser</text>
+
+          <rect class="n-ext" x="930" y="24" width="210" height="80" rx="8"/>
+          <text class="t-name" x="1035" y="52" text-anchor="middle">Payment Gateway</text>
+          <text class="t-tag" x="1035" y="69" text-anchor="middle">[External System]</text>
+          <text class="t-body" x="1035" y="89" text-anchor="middle">Cards, wallets, transfers</text>
+
+          <!-- edges -->
+          <path class="edge" d="M463 300H980"/>
+          <path class="edge" d="M140 104V192" marker-end="url(#a2)"/>
+          <path class="edge" d="M463 104V192" marker-end="url(#a2)"/>
+          <path class="edge" d="M749 104V192" marker-end="url(#a2)"/>
+          <path class="edge" d="M1054 104V328" marker-end="url(#a2)" marker-start="url(#a2)"/>
+          <path class="edge" d="M644 232H568" marker-end="url(#a2)"/>
+          <path class="edge" d="M463 272V328" marker-end="url(#a2)"/>
+          <path class="edge" d="M606 300V496" marker-end="url(#a2)"/>
+          <path class="edge" d="M749 300V328" marker-end="url(#a2)"/>
+          <path class="edge" d="M980 300V328" marker-end="url(#a2)"/>
+          <path class="edge" d="M282 360H358" marker-end="url(#a2)"/>
+          <path class="edge" d="M282 410H320V540H358" marker-end="url(#a2)"/>
+          <path class="edge" d="M463 496V432" marker-end="url(#a2)"/>
+          <path class="edge" d="M749 432V496" marker-end="url(#a2)"/>
+          <path class="edge" d="M854 410H892V636" marker-end="url(#a2)"/>
+          <path class="edge" d="M970 432V540H854" marker-end="url(#a2)"/>
+          <path class="edge" d="M1080 432V634" marker-end="url(#a2)"/>
+          <path class="edge" d="M177 432V496" marker-end="url(#a2)"/>
+          <path class="edge" d="M177 632V586" marker-end="url(#a2)"/>
+          <path class="edge" d="M177 768V720" marker-end="url(#a2)"/>
+          <path class="edge" d="M72 232H58V792H72" marker-end="url(#a2)"/>
+          <path class="edge" d="M489 584V632" marker-end="url(#a2)"/>
+          <path class="edge" d="M765 584V632" marker-end="url(#a2)"/>
+          <path class="edge" d="M650 768V584" marker-end="url(#a2)"/>
+          <path class="edge" d="M489 722V768" marker-end="url(#a2)"/>
+          <path class="edge" d="M1005 722V768" marker-end="url(#a2)"/>
+          <path class="edge" d="M212 816V864" marker-end="url(#a2)"/>
+          <path class="edge" d="M604 864V816" marker-end="url(#a2)"/>
+          <path class="edge" d="M1000 816V864" marker-end="url(#a2)"/>
+          <path class="edge" d="M72 912H40V64H72" marker-end="url(#a2)"/>
+          <path class="edge" d="M212 960V1016" marker-end="url(#a2)"/>
+          <path class="edge" d="M1000 960V1148" marker-end="url(#a2)"/>
+
+          <text class="t-edge" x="148" y="128">event, webhook</text>
+          <text class="t-edge" x="471" y="128">REST · OAuth2</text>
+          <text class="t-edge" x="757" y="128">HTTPS</text>
+          <text class="t-edge" x="1046" y="200" text-anchor="end">create payment, refund</text>
+          <text class="t-edge" x="1046" y="216" text-anchor="end">signed result callback</text>
+          <text class="t-edge" x="606" y="224" text-anchor="middle">REST</text>
+          <text class="t-edge" x="535" y="292" text-anchor="middle">REST routing</text>
+          <text class="t-edge" x="320" y="352" text-anchor="middle">rate</text>
+          <text class="t-edge" x="320" y="404" text-anchor="middle">post charge</text>
+          <text class="t-edge" x="471" y="470">estimate, rate (sync)</text>
+          <text class="t-edge" x="757" y="470">post fees</text>
+          <text class="t-edge" x="930" y="532" text-anchor="middle">refund hold</text>
+          <text class="t-edge" x="900" y="612">invoices, plans</text>
+          <text class="t-edge" x="1088" y="540">state</text>
+          <text class="t-edge" x="185" y="470">read with FINAL</text>
+          <text class="t-edge" x="185" y="612">batch insert</text>
+          <text class="t-edge" x="185" y="750">consume usage.raw.v1</text>
+          <text class="t-edge" x="66" y="470">usage.raw.v1</text>
+          <text class="t-edge" x="497" y="612">one shard per tx</text>
+          <text class="t-edge" x="773" y="612">history reads</text>
+          <text class="t-edge" x="658" y="612">events, jobs</text>
+          <text class="t-edge" x="497" y="750">outbox relay (CDC)</text>
+          <text class="t-edge" x="1013" y="750">outbox relay (CDC)</text>
+          <text class="t-edge" x="220" y="846">consume</text>
+          <text class="t-edge" x="612" y="846">job event</text>
+          <text class="t-edge" x="1008" y="846">consume</text>
+          <text class="t-edge" x="220" y="992">deliveries, attempts</text>
+          <text class="t-edge" x="1008" y="1140">journals, invoices</text>
+          <text class="t-edge" x="33" y="520" text-anchor="middle" transform="rotate(-90 33 520)">HMAC-signed webhook, retry → Client Systems</text>
+
+          <!-- row 1 -->
+          <rect class="n-int" x="72" y="192" width="210" height="80" rx="8"/>
+          <text class="t-name" x="177" y="219" text-anchor="middle">Event Ingestion</text>
+          <text class="t-tag" x="177" y="236" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="177" y="256" text-anchor="middle">Inbound events &amp; webhooks</text>
+          <rect class="n-int" x="358" y="192" width="210" height="80" rx="8"/>
+          <text class="t-name" x="463" y="219" text-anchor="middle">API Gateway</text>
+          <text class="t-tag" x="463" y="236" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="463" y="256" text-anchor="middle">Auth OAuth2/JWT, rate limit</text>
+          <rect class="n-int" x="644" y="192" width="210" height="80" rx="8"/>
+          <text class="t-name" x="749" y="219" text-anchor="middle">Web Portal</text>
+          <text class="t-tag" x="749" y="236" text-anchor="middle">[Container: React SPA]</text>
+          <text class="t-body" x="749" y="256" text-anchor="middle">Customers &amp; Admins</text>
+
+          <!-- row 2 -->
+          <rect class="n-int" x="72" y="328" width="210" height="104" rx="8"/>
+          <text class="t-name" x="177" y="355" text-anchor="middle">Rating Worker</text>
+          <text class="t-tag" x="177" y="372" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="177" y="392" text-anchor="middle">Cumulative rating per account;</text>
+          <text class="t-body" x="177" y="408" text-anchor="middle">cursor, idempotent charges</text>
+          <rect class="n-int" x="358" y="328" width="210" height="104" rx="8"/>
+          <text class="t-name" x="463" y="355" text-anchor="middle">Pricing Engine</text>
+          <text class="t-tag" x="463" y="372" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="463" y="392" text-anchor="middle">Price plan, tier, hybrid;</text>
+          <text class="t-body" x="463" y="408" text-anchor="middle">rating &amp; cost estimation</text>
+          <rect class="n-int" x="644" y="328" width="210" height="104" rx="8"/>
+          <text class="t-name" x="749" y="355" text-anchor="middle">Invoicing</text>
+          <text class="t-tag" x="749" y="372" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="749" y="392" text-anchor="middle">Subscriptions, cycles,</text>
+          <text class="t-body" x="749" y="408" text-anchor="middle">invoices, receivables</text>
+          <rect class="n-int" x="930" y="328" width="210" height="104" rx="8"/>
+          <text class="t-name" x="1035" y="355" text-anchor="middle">Payment &amp; Refund</text>
+          <text class="t-tag" x="1035" y="372" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="1035" y="392" text-anchor="middle">PSP adapter, payments,</text>
+          <text class="t-body" x="1035" y="408" text-anchor="middle">refunds, PSP callbacks</text>
+
+          <!-- row 3 -->
+          <path class="n-int" d="M72 504A105 8 0 0 1 282 504V576A105 8 0 0 1 72 576Z"/>
+          <path class="edge" d="M72 504A105 8 0 0 0 282 504"/>
+          <text class="t-name" x="177" y="532" text-anchor="middle">Usage Store</text>
+          <text class="t-tag" x="177" y="548" text-anchor="middle">[ClickHouse]</text>
+          <text class="t-body" x="177" y="565" text-anchor="middle">deduped at read</text>
+          <rect class="n-focus" x="358" y="496" width="496" height="88" rx="8"/>
+          <text class="t-name" x="606" y="518" text-anchor="middle">Wallet &amp; Ledger</text>
+          <text class="t-tag" x="606" y="534" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="606" y="554" text-anchor="middle">Balances · Balance Reservation (hold → commit / release) · Wallet Gate</text>
+          <text class="t-body" x="606" y="571" text-anchor="middle">append-only double-entry · movement log · keyed idempotency · Shard Router</text>
+
+          <!-- row 4 -->
+          <rect class="n-int" x="72" y="632" width="210" height="88" rx="8"/>
+          <text class="t-name" x="177" y="655" text-anchor="middle">Usage Writer</text>
+          <text class="t-tag" x="177" y="672" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="177" y="692" text-anchor="middle">Consumes usage events,</text>
+          <text class="t-body" x="177" y="708" text-anchor="middle">batch inserts</text>
+          <path class="n-int" d="M370 630A131 8 0 0 1 632 630V702A131 8 0 0 1 370 702Z"/>
+          <path class="n-int" d="M364 635A131 8 0 0 1 626 635V707A131 8 0 0 1 364 707Z"/>
+          <path class="n-int" d="M358 640A131 8 0 0 1 620 640V712A131 8 0 0 1 358 712Z"/>
+          <path class="edge" d="M358 640A131 8 0 0 0 620 640"/>
+          <text class="t-name" x="489" y="662" text-anchor="middle">Ledger DB</text>
+          <text class="t-tag" x="489" y="678" text-anchor="middle">[PostgreSQL, N logical shards]</text>
+          <text class="t-body" x="489" y="695" text-anchor="middle">shard = hash(account_id)</text>
+          <text class="t-body" x="489" y="709" text-anchor="middle">wallet · journal · postings · outbox</text>
+          <path class="n-int" d="M680 640A85 8 0 0 1 850 640V712A85 8 0 0 1 680 712Z"/>
+          <path class="edge" d="M680 640A85 8 0 0 0 850 640"/>
+          <text class="t-name" x="765" y="670" text-anchor="middle">Read Replica</text>
+          <text class="t-tag" x="765" y="686" text-anchor="middle">[PostgreSQL]</text>
+          <text class="t-body" x="765" y="703" text-anchor="middle">history, statements</text>
+          <path class="n-int" d="M870 640A135 8 0 0 1 1140 640V712A135 8 0 0 1 870 712Z"/>
+          <path class="edge" d="M870 640A135 8 0 0 0 1140 640"/>
+          <text class="t-name" x="1005" y="662" text-anchor="middle">Billing Ops DB</text>
+          <text class="t-tag" x="1005" y="678" text-anchor="middle">[PostgreSQL]</text>
+          <text class="t-body" x="1005" y="695" text-anchor="middle">pricing · invoicing · payment</text>
+          <text class="t-body" x="1005" y="709" text-anchor="middle">audit · platform · outbox</text>
+
+          <!-- row 5 broker -->
+          <rect class="n-int" x="72" y="768" width="1068" height="48" rx="8"/>
+          <text class="t-name" x="606" y="788" text-anchor="middle">Message Broker <tspan class="t-tag">[Kafka]</tspan></text>
+          <text class="t-body" x="606" y="806" text-anchor="middle">usage.raw.v1 · billing.events.v1 · billing.jobs.v1 — partitioned by account_id</text>
+
+          <!-- row 6 -->
+          <rect class="n-int" x="72" y="864" width="280" height="96" rx="8"/>
+          <text class="t-name" x="212" y="891" text-anchor="middle">Webhook Dispatcher</text>
+          <text class="t-tag" x="212" y="908" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="212" y="928" text-anchor="middle">Subscriber and delivery workers scale</text>
+          <text class="t-body" x="212" y="944" text-anchor="middle">separately; HMAC, retry, DLQ</text>
+          <rect class="n-int" x="464" y="864" width="280" height="96" rx="8"/>
+          <text class="t-name" x="604" y="891" text-anchor="middle">Scheduler</text>
+          <text class="t-tag" x="604" y="908" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="604" y="928" text-anchor="middle">Reservation expiry drained per shard,</text>
+          <text class="t-body" x="604" y="944" text-anchor="middle">cycle close, payment due reminders</text>
+          <rect class="n-int" x="860" y="864" width="280" height="96" rx="8"/>
+          <text class="t-name" x="1000" y="891" text-anchor="middle">Reconciliation &amp; Audit</text>
+          <text class="t-tag" x="1000" y="908" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="1000" y="928" text-anchor="middle">Reconcile Ledger against PSP,</text>
+          <text class="t-body" x="1000" y="944" text-anchor="middle">audit log, ERP export</text>
+
+          <!-- row 7 -->
+          <path class="n-int" d="M72 1024A140 8 0 0 1 352 1024V1088A140 8 0 0 1 72 1088Z"/>
+          <path class="edge" d="M72 1024A140 8 0 0 0 352 1024"/>
+          <text class="t-name" x="212" y="1048" text-anchor="middle">Delivery DB</text>
+          <text class="t-tag" x="212" y="1064" text-anchor="middle">[PostgreSQL]</text>
+          <text class="t-body" x="212" y="1081" text-anchor="middle">subscriptions · deliveries · attempts · outbox</text>
+
+          <!-- ERP -->
+          <rect class="n-ext" x="860" y="1148" width="280" height="72" rx="8"/>
+          <text class="t-name" x="1000" y="1178" text-anchor="middle">Accounting / ERP</text>
+          <text class="t-tag" x="1000" y="1195" text-anchor="middle">[External System]</text>
+        </svg>
+      </div>
+      <figcaption>Pricing, Invoicing and Payment never change balances directly: every money movement goes through Wallet &amp; Ledger in one transaction on the account's shard. Each logical store has its own outbox, written in the same transaction as the change and relayed to Kafka, so no event is published for a change that was not committed. Containers are process roles of one artifact. The three stores start in one PostgreSQL cluster and can each move to their own, and Ledger DB's logical shards can move to more clusters, without any change to the API. Event order is guaranteed per account within a module.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===================== C3 Ledger ===================== -->
+  <section id="c3-ledger">
+    <div class="sec-head"><span class="level">C3</span><h2>Component · Wallet &amp; Ledger</h2></div>
+    <figure>
+      <div class="fig">
+        <svg viewBox="0 0 1280 920" role="img" aria-label="C3 Wallet &amp; Ledger: commands are routed to a shard, admitted by the Wallet Gate and pass the Idempotency Guard; the Reservation Manager holds budget, and the Posting Engine writes postings, movements and outbox rows in one transaction">
+          <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs>
+
+          <rect class="bound" x="40" y="144" width="1216" height="640" rx="12"/>
+          <text class="t-bound" x="72" y="170">Wallet &amp; Ledger</text>
+          <text class="t-tag" x="204" y="170">[Container]</text>
+
+          <!-- externals -->
+          <rect class="n-ext" x="72" y="24" width="240" height="80" rx="8"/>
+          <text class="t-name" x="192" y="50" text-anchor="middle">API Gateway</text>
+          <text class="t-tag" x="192" y="67" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="192" y="87" text-anchor="middle">Client, Portal</text>
+          <rect class="n-ext" x="680" y="24" width="240" height="80" rx="8"/>
+          <text class="t-name" x="800" y="50" text-anchor="middle">Pricing Engine</text>
+          <text class="t-tag" x="800" y="67" text-anchor="middle">[Container]</text>
+          <text class="t-body" x="800" y="87" text-anchor="middle">Workload cost estimates</text>
+          <rect class="n-ext" x="984" y="24" width="240" height="80" rx="8"/>
+          <text class="t-name" x="1104" y="50" text-anchor="middle">Message Broker</text>
+          <text class="t-tag" x="1104" y="67" text-anchor="middle">[Container: Kafka]</text>
+          <text class="t-body" x="1104" y="87" text-anchor="middle">Events from Payment, Scheduler</text>
+
+          <!-- edges -->
+          <path class="edge" d="M192 104V192" marker-end="url(#a3)"/>
+          <path class="edge" d="M312 236H376" marker-end="url(#a3)"/>
+          <path class="edge" d="M496 280V344" marker-end="url(#a3)"/>
+          <path class="edge" d="M496 432V496" marker-end="url(#a3)"/>
+          <path class="edge" d="M616 548H680" marker-end="url(#a3)"/>
+          <path class="edge" d="M920 548H984" marker-end="url(#a3)"/>
+          <path class="edge" d="M720 496V104" marker-end="url(#a3)"/>
+          <path class="edge" d="M1104 104V192" marker-end="url(#a3)"/>
+          <path class="edge" d="M984 236H800V496" marker-end="url(#a3)"/>
+          <path class="edge" d="M1224 236H1240V772H800V752" marker-end="url(#a3)"/>
+          <path class="edge" d="M800 600V664" marker-end="url(#a3)"/>
+          <path class="edge" d="M880 600V632H1104V664" marker-end="url(#a3)"/>
+          <path class="edge" d="M680 708H616" marker-end="url(#a3)"/>
+          <path class="edge" d="M920 708H984" marker-end="url(#a3)"/>
+          <path class="edge" d="M192 280V496" marker-end="url(#a3)"/>
+          <path class="edge" d="M192 584V816" marker-end="url(#a3)"/>
+          <path class="edge" d="M496 752V816" marker-end="url(#a3)"/>
+          <path class="edge" d="M760 752V816" marker-end="url(#a3)"/>
+          <path class="edge" d="M1104 752V816" marker-end="url(#a3)"/>
+
+          <text class="t-edge" x="200" y="128">REST · authenticated JWT</text>
+          <text class="t-edge" x="728" y="128">cost estimate (sync)</text>
+          <text class="t-edge" x="1112" y="128">consume</text>
+          <text class="t-edge" x="344" y="228" text-anchor="middle">route</text>
+          <text class="t-edge" x="504" y="316">hash(account_id) → shard</text>
+          <text class="t-edge" x="504" y="470">≤ 5 waiting per wallet</text>
+          <text class="t-edge" x="648" y="540" text-anchor="middle">new key</text>
+          <text class="t-edge" x="952" y="540" text-anchor="middle">check</text>
+          <text class="t-edge" x="892" y="228" text-anchor="middle">reservation expiry</text>
+          <text class="t-edge" x="1020" y="768" text-anchor="middle">credit top-ups, refunds</text>
+          <text class="t-edge" x="808" y="636">commit only</text>
+          <text class="t-edge" x="990" y="624" text-anchor="middle">every hold, release, commit</text>
+          <text class="t-edge" x="648" y="700" text-anchor="middle">same tx</text>
+          <text class="t-edge" x="952" y="700" text-anchor="middle">same tx</text>
+          <text class="t-edge" x="200" y="390">queries</text>
+          <text class="t-edge" x="200" y="700">read models</text>
+          <text class="t-edge" x="504" y="804">outbox rows</text>
+          <text class="t-edge" x="768" y="804">journal, postings</text>
+          <text class="t-edge" x="1112" y="804">movements</text>
+
+          <!-- r1 -->
+          <rect class="n-int" x="72" y="192" width="240" height="88" rx="8"/>
+          <text class="t-name" x="192" y="216" text-anchor="middle">API Controllers</text>
+          <text class="t-tag" x="192" y="233" text-anchor="middle">[Component: REST]</text>
+          <text class="t-body" x="192" y="253" text-anchor="middle">Wallet, Reservation, Balance,</text>
+          <text class="t-body" x="192" y="269" text-anchor="middle">transaction history</text>
+          <rect class="n-int" x="376" y="192" width="240" height="88" rx="8"/>
+          <text class="t-name" x="496" y="216" text-anchor="middle">Shard Router</text>
+          <text class="t-tag" x="496" y="233" text-anchor="middle">[Component]</text>
+          <text class="t-body" x="496" y="253" text-anchor="middle">hash(account_id) % 1024</text>
+          <text class="t-body" x="496" y="269" text-anchor="middle">→ physical cluster</text>
+          <rect class="n-int" x="984" y="192" width="240" height="88" rx="8"/>
+          <text class="t-name" x="1104" y="216" text-anchor="middle">Event Consumer</text>
+          <text class="t-tag" x="1104" y="233" text-anchor="middle">[Component]</text>
+          <text class="t-body" x="1104" y="253" text-anchor="middle">payment.succeeded, refund.*,</text>
+          <text class="t-body" x="1104" y="269" text-anchor="middle">deduplicated by event_id</text>
+
+          <!-- r2 -->
+          <rect class="n-int" x="376" y="344" width="240" height="88" rx="8"/>
+          <text class="t-name" x="496" y="368" text-anchor="middle">Wallet Gate</text>
+          <text class="t-tag" x="496" y="385" text-anchor="middle">[Component]</text>
+          <text class="t-body" x="496" y="405" text-anchor="middle">Per wallet, per replica: excess</text>
+          <text class="t-body" x="496" y="421" text-anchor="middle">→ 503 account_busy, no connection</text>
+
+          <!-- r3 -->
+          <rect class="n-int" x="72" y="496" width="240" height="88" rx="8"/>
+          <text class="t-name" x="192" y="520" text-anchor="middle">Query Handlers</text>
+          <text class="t-tag" x="192" y="537" text-anchor="middle">[Component: read side]</text>
+          <text class="t-body" x="192" y="557" text-anchor="middle">Balance from the primary,</text>
+          <text class="t-body" x="192" y="573" text-anchor="middle">history from a replica</text>
+          <rect class="n-int" x="376" y="496" width="240" height="104" rx="8"/>
+          <text class="t-name" x="496" y="521" text-anchor="middle">Idempotency Guard</text>
+          <text class="t-tag" x="496" y="538" text-anchor="middle">[Component]</text>
+          <text class="t-body" x="496" y="558" text-anchor="middle">Stores key + request hash;</text>
+          <text class="t-body" x="496" y="574" text-anchor="middle">replay → cached response;</text>
+          <text class="t-body" x="496" y="590" text-anchor="middle">hash mismatch → 409 Conflict</text>
+          <rect class="n-focus" x="680" y="496" width="240" height="104" rx="8"/>
+          <text class="t-name" x="800" y="521" text-anchor="middle">Reservation Manager</text>
+          <text class="t-tag" x="800" y="538" text-anchor="middle">[Component]</text>
+          <text class="t-body" x="800" y="558" text-anchor="middle">hold → commit / release, TTL,</text>
+          <text class="t-body" x="800" y="574" text-anchor="middle">wallet lock FOR NO KEY UPDATE,</text>
+          <text class="t-body" x="800" y="590" text-anchor="middle">lock_timeout 500 ms</text>
+          <rect class="n-int" x="984" y="496" width="240" height="104" rx="8"/>
+          <text class="t-name" x="1104" y="521" text-anchor="middle">Balance Policy</text>
+          <text class="t-tag" x="1104" y="538" text-anchor="middle">[Component]</text>
+          <text class="t-body" x="1104" y="558" text-anchor="middle">Prepaid / postpaid, limits;</text>
+          <text class="t-body" x="1104" y="574" text-anchor="middle">available = balance − held</text>
+          <text class="t-body" x="1104" y="590" text-anchor="middle">+ credit limit</text>
+
+          <!-- r4 -->
+          <rect class="n-int" x="376" y="664" width="240" height="88" rx="8"/>
+          <text class="t-name" x="496" y="688" text-anchor="middle">Outbox Writer</text>
+          <text class="t-tag" x="496" y="705" text-anchor="middle">[Component]</text>
+          <text class="t-body" x="496" y="725" text-anchor="middle">Events written in the same</text>
+          <text class="t-body" x="496" y="741" text-anchor="middle">transaction as the change</text>
+          <rect class="n-int" x="680" y="664" width="240" height="88" rx="8"/>
+          <text class="t-name" x="800" y="688" text-anchor="middle">Posting Engine</text>
+          <text class="t-tag" x="800" y="705" text-anchor="middle">[Component]</text>
+          <text class="t-body" x="800" y="725" text-anchor="middle">Double-entry: debits = credits,</text>
+          <text class="t-body" x="800" y="741" text-anchor="middle">append-only, no update / delete</text>
+          <rect class="n-int" x="984" y="664" width="240" height="88" rx="8"/>
+          <text class="t-name" x="1104" y="688" text-anchor="middle">Movement Log</text>
+          <text class="t-tag" x="1104" y="705" text-anchor="middle">[Component]</text>
+          <text class="t-body" x="1104" y="725" text-anchor="middle">One append-only row per change</text>
+          <text class="t-body" x="1104" y="741" text-anchor="middle">to balance or held</text>
+
+          <!-- db -->
+          <path class="n-int" d="M72 824A576 8 0 0 1 1224 824V888A576 8 0 0 1 72 888Z"/>
+          <path class="edge" d="M72 824A576 8 0 0 0 1224 824"/>
+          <text class="t-name" x="648" y="851" text-anchor="middle">Ledger DB</text>
+          <text class="t-tag" x="648" y="868" text-anchor="middle">[Container: PostgreSQL, one logical shard of N]</text>
+          <text class="t-body" x="648" y="886" text-anchor="middle">wallet · reservation · charge · journal · posting · wallet_movement · idempotency_key · outbox</text>
+        </svg>
+      </div>
+      <figcaption>Budget hold flow: the client calls <code>POST /reservations</code> with an Idempotency-Key. Shard Router picks the account's shard and Wallet Gate limits how many requests may wait on one wallet, so one busy account cannot take every connection. The Reservation Manager gets an estimate from the Pricing Engine before any lock, checks the Balance Policy, then records the hold as a memo entry with a movement row and no postings. When the workload finishes, <code>commit</code> deducts the actual cost, writes the journal and releases the remainder; if no commit arrives before the TTL, the Scheduler emits a job, the hold is released and <code>reservation.expired</code> is published.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===================== C3 Webhook ===================== -->
+  <section id="c3-webhook">
+    <div class="sec-head"><span class="level">C3</span><h2>Component · Webhook Dispatcher</h2></div>
+    <figure>
+      <div class="fig">
+        <svg viewBox="0 0 1180 704" role="img" aria-label="C3 Webhook Dispatcher: events are matched to subscriptions, wrapped in an envelope, HMAC-signed, sent, and tracked through delivery states with retries">
+          <defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs>
+
+          <rect class="bound" x="40" y="144" width="1112" height="408" rx="12"/>
+          <text class="t-bound" x="206" y="170">Webhook Dispatcher</text>
+          <text class="t-tag" x="352" y="170">[Container]</text>
+
+          <rect class="n-ext" x="72" y="24" width="220" height="80" rx="8"/>
+          <text class="t-name" x="182" y="50" text-anchor="middle">Message Broker</text>
+          <text class="t-tag" x="182" y="67" text-anchor="middle">[Container: Kafka]</text>
+          <text class="t-body" x="182" y="87" text-anchor="middle">Domain events</text>
+
+          <rect class="n-ext" x="900" y="24" width="220" height="80" rx="8"/>
+          <text class="t-name" x="1010" y="50" text-anchor="middle">Client Systems</text>
+          <text class="t-tag" x="1010" y="67" text-anchor="middle">[External System]</text>
+          <text class="t-body" x="1010" y="87" text-anchor="middle">Webhook endpoint</text>
+
+          <!-- edges -->
+          <path class="edge" d="M182 104V192" marker-end="url(#a4)"/>
+          <path class="edge" d="M182 296V360" marker-end="url(#a4)"/>
+          <path class="edge" d="M182 464V600" marker-end="url(#a4)"/>
+          <path class="edge" d="M292 244H348" marker-end="url(#a4)"/>
+          <path class="edge" d="M568 244H624" marker-end="url(#a4)"/>
+          <path class="edge" d="M844 244H900" marker-end="url(#a4)"/>
+          <path class="edge" d="M1010 192V104" marker-end="url(#a4)"/>
+          <path class="edge" d="M970 296V360" marker-end="url(#a4)"/>
+          <path class="edge" d="M1050 360V296" marker-end="url(#a4)"/>
+          <path class="edge" d="M872 520V600" marker-end="url(#a4)"/>
+
+          <text class="t-edge" x="190" y="128">consume</text>
+          <text class="t-edge" x="190" y="332">look up subscription</text>
+          <text class="t-edge" x="190" y="576">read</text>
+          <text class="t-edge" x="320" y="236" text-anchor="middle">matched</text>
+          <text class="t-edge" x="596" y="236" text-anchor="middle">payload</text>
+          <text class="t-edge" x="872" y="236" text-anchor="middle">signed</text>
+          <text class="t-edge" x="1018" y="128">HTTPS POST, expects 2xx</text>
+          <text class="t-edge" x="962" y="332" text-anchor="end">result</text>
+          <text class="t-edge" x="1058" y="332">retry</text>
+          <text class="t-edge" x="880" y="576">attempts, status</text>
+
+          <!-- r1 -->
+          <rect class="n-int" x="72" y="192" width="220" height="104" rx="8"/>
+          <text class="t-name" x="182" y="217" text-anchor="middle">Event Subscriber</text>
+          <text class="t-tag" x="182" y="234" text-anchor="middle">[Component · subscriber role]</text>
+          <text class="t-body" x="182" y="254" text-anchor="middle">Dedicated consumer group;</text>
+          <text class="t-body" x="182" y="270" text-anchor="middle">commits offset after</text>
+          <text class="t-body" x="182" y="286" text-anchor="middle">delivery is persisted</text>
+
+          <rect class="n-int" x="348" y="192" width="220" height="104" rx="8"/>
+          <text class="t-name" x="458" y="217" text-anchor="middle">Payload Builder</text>
+          <text class="t-tag" x="458" y="234" text-anchor="middle">[Component]</text>
+          <text class="t-mono" x="458" y="254" text-anchor="middle">id, type, occurred_at,</text>
+          <text class="t-mono" x="458" y="270" text-anchor="middle">account_id, data,</text>
+          <text class="t-mono" x="458" y="286" text-anchor="middle">api_version</text>
+
+          <rect class="n-int" x="624" y="192" width="220" height="104" rx="8"/>
+          <text class="t-name" x="734" y="217" text-anchor="middle">Signer</text>
+          <text class="t-tag" x="734" y="234" text-anchor="middle">[Component]</text>
+          <text class="t-body" x="734" y="254" text-anchor="middle">HMAC-SHA256(secret,</text>
+          <text class="t-body" x="734" y="270" text-anchor="middle">timestamp + "." + body)</text>
+          <text class="t-mono" x="734" y="286" text-anchor="middle">Billing-Signature: t=…,v1=…</text>
+
+          <rect class="n-int" x="900" y="192" width="220" height="104" rx="8"/>
+          <text class="t-name" x="1010" y="217" text-anchor="middle">Delivery Worker</text>
+          <text class="t-tag" x="1010" y="234" text-anchor="middle">[Component · delivery role]</text>
+          <text class="t-body" x="1010" y="254" text-anchor="middle">POST to endpoint, timeout;</text>
+          <text class="t-body" x="1010" y="270" text-anchor="middle">only 2xx counts as success;</text>
+          <text class="t-body" x="1010" y="286" text-anchor="middle">Client dedupes by event id</text>
+
+          <!-- r2 -->
+          <rect class="n-int" x="72" y="360" width="220" height="104" rx="8"/>
+          <text class="t-name" x="182" y="385" text-anchor="middle">Subscription Registry</text>
+          <text class="t-tag" x="182" y="402" text-anchor="middle">[Component]</text>
+          <text class="t-body" x="182" y="422" text-anchor="middle">Endpoints, event types,</text>
+          <text class="t-body" x="182" y="438" text-anchor="middle">per-client secrets,</text>
+          <text class="t-body" x="182" y="454" text-anchor="middle">secret rotation</text>
+
+          <rect class="n-focus" x="624" y="360" width="496" height="160" rx="8"/>
+          <text class="t-name" x="640" y="386">Delivery Tracker</text>
+          <text class="t-tag" x="768" y="386">[Component]</text>
+
+          <path class="edge" d="M736 428H768" marker-end="url(#a4)"/>
+          <path class="edge" d="M864 428H896" marker-end="url(#a4)"/>
+          <path class="edge" d="M800 440V464" marker-end="url(#a4)"/>
+          <path class="edge" d="M832 464V440" marker-end="url(#a4)"/>
+          <path class="edge" d="M864 476H896" marker-end="url(#a4)"/>
+          <rect class="pill" x="640" y="416" width="96" height="24" rx="12"/>
+          <text class="t-mono" x="688" y="432" text-anchor="middle">pending</text>
+          <rect class="pill" x="768" y="416" width="96" height="24" rx="12"/>
+          <text class="t-mono" x="816" y="432" text-anchor="middle">delivering</text>
+          <rect class="pill good" x="896" y="416" width="96" height="24" rx="12"/>
+          <text class="t-mono" x="944" y="432" text-anchor="middle">delivered</text>
+          <rect class="pill warn" x="768" y="464" width="96" height="24" rx="12"/>
+          <text class="t-mono" x="816" y="480" text-anchor="middle">retrying</text>
+          <rect class="pill crit" x="896" y="464" width="96" height="24" rx="12"/>
+          <text class="t-mono" x="944" y="480" text-anchor="middle">dead</text>
+
+          <text class="t-body" x="1006" y="426">Exponential</text>
+          <text class="t-body" x="1006" y="442">backoff, jitter.</text>
+          <text class="t-body" x="1006" y="458">Exhausted</text>
+          <text class="t-body" x="1006" y="474">→ dead.</text>
+          <text class="t-body" x="1006" y="490">Redeliver via API</text>
+          <text class="t-body" x="640" y="508">5xx, 408, 429, timeout, connection error → retrying; other 4xx → dead</text>
+
+          <!-- db -->
+          <path class="n-int" d="M72 608A524 8 0 0 1 1120 608V672A524 8 0 0 1 72 672Z"/>
+          <path class="edge" d="M72 608A524 8 0 0 0 1120 608"/>
+          <text class="t-name" x="596" y="638" text-anchor="middle">Delivery DB</text>
+          <text class="t-tag" x="596" y="655" text-anchor="middle">[Container: PostgreSQL]</text>
+          <text class="t-body" x="596" y="672" text-anchor="middle">subscriptions · secrets (encrypted) · deliveries · attempts · event_log · outbox</text>
+        </svg>
+      </div>
+      <figcaption>Each event is persisted as a delivery before the offset is committed, so nothing is lost if a worker stops mid-flight. Event Subscriber and Delivery Worker run as separate process roles, so they scale independently, and Delivery DB is the first store to move to its own cluster. Clients verify the signature, reject stale timestamps to prevent replay, and dedupe by <code>id</code> because Billing delivers at least once.</figcaption>
+    </figure>
+  </section>
+<!-- ===================== Deployment ===================== -->
+  <section id="deployment">
+    <div class="sec-head"><span class="level">Deployment</span><h2>Kubernetes · Production</h2></div>
+    <figure>
+      <div class="fig">
+        <svg viewBox="0 0 1180 640" role="img" aria-label="Deployment: an ingress leads to the gateway and to nine billing process roles, which reach PostgreSQL through PgBouncer; Debezium relays the WAL to Kafka; operators manage the stateful systems">
+          <defs><marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs>
+
+          <rect class="bound" x="24" y="124" width="1132" height="488" rx="12"/>
+          <text class="t-bound" x="44" y="150">Kubernetes cluster</text>
+          <text class="t-tag" x="240" y="150">[3+ zones]</text>
+
+          <rect class="n-ext" x="72" y="24" width="280" height="80" rx="8"/>
+          <text class="t-name" x="212" y="52" text-anchor="middle">Client Systems, browsers</text>
+          <text class="t-tag" x="212" y="69" text-anchor="middle">[External]</text>
+          <text class="t-body" x="212" y="89" text-anchor="middle">API and Portal traffic</text>
+
+          <path class="edge" d="M212 104V168" marker-end="url(#a5)"/>
+          <path class="edge" d="M282 208H358" marker-end="url(#a5)"/>
+          <path class="edge" d="M463 248V276" marker-end="url(#a5)"/>
+          <path class="edge" d="M177 408V470" marker-end="url(#a5)"/>
+          <path class="edge" d="M262 515H320" marker-end="url(#a5)"/>
+          <path class="edge" d="M540 515H590" marker-end="url(#a5)"/>
+          <path class="edge" d="M760 515H800" marker-end="url(#a5)"/>
+          <path class="edge" d="M880 408V470" marker-end="url(#a5)"/>
+          <path class="edge" d="M1065 408V470" marker-end="url(#a5)"/>
+          <text class="t-edge" x="220" y="118">HTTPS</text>
+          <text class="t-edge" x="320" y="200" text-anchor="middle">route</text>
+          <text class="t-edge" x="185" y="444">one pool per role</text>
+          <text class="t-edge" x="291" y="507" text-anchor="middle">txn</text>
+          <text class="t-edge" x="565" y="507" text-anchor="middle">WAL</text>
+          <text class="t-edge" x="780" y="507" text-anchor="middle">CDC</text>
+          <text class="t-edge" x="888" y="444">events, usage</text>
+          <text class="t-edge" x="1073" y="444">usage</text>
+
+          <rect class="n-int" x="72" y="168" width="210" height="80" rx="8"/>
+          <text class="t-name" x="177" y="195" text-anchor="middle">Ingress</text>
+          <text class="t-tag" x="177" y="212" text-anchor="middle">[Infrastructure]</text>
+          <text class="t-body" x="177" y="232" text-anchor="middle">TLS termination</text>
+          <rect class="n-int" x="358" y="168" width="210" height="80" rx="8"/>
+          <text class="t-name" x="463" y="195" text-anchor="middle">gateway ×2</text>
+          <text class="t-tag" x="463" y="212" text-anchor="middle">[Deployment]</text>
+          <text class="t-body" x="463" y="232" text-anchor="middle">JWT, rate limits</text>
+
+          <rect class="bound" x="44" y="276" width="1092" height="132" rx="10"/>
+          <text class="t-bound" x="896" y="374">Application node pool</text>
+          <text class="t-tag" x="896" y="392">one artifact, nine roles</text>
+          <rect class="n-int" x="64" y="300" width="196" height="40" rx="8"/><text class="t-mono" x="162" y="325" text-anchor="middle">api ×3</text>
+          <rect class="n-int" x="272" y="300" width="196" height="40" rx="8"/><text class="t-mono" x="370" y="325" text-anchor="middle">ingest ×2</text>
+          <rect class="n-int" x="480" y="300" width="196" height="40" rx="8"/><text class="t-mono" x="578" y="325" text-anchor="middle">usage-writer ×2</text>
+          <rect class="n-int" x="688" y="300" width="196" height="40" rx="8"/><text class="t-mono" x="786" y="325" text-anchor="middle">rating ×2</text>
+          <rect class="n-int" x="896" y="300" width="196" height="40" rx="8"/><text class="t-mono" x="994" y="325" text-anchor="middle">worker ×3</text>
+          <rect class="n-int" x="64" y="352" width="196" height="40" rx="8"/><text class="t-mono" x="162" y="377" text-anchor="middle">webhook-subscriber ×2</text>
+          <rect class="n-int" x="272" y="352" width="196" height="40" rx="8"/><text class="t-mono" x="370" y="377" text-anchor="middle">webhook-delivery ×3</text>
+          <rect class="n-int" x="480" y="352" width="196" height="40" rx="8"/><text class="t-mono" x="578" y="377" text-anchor="middle">scheduler ×2</text>
+          <rect class="n-int" x="688" y="352" width="196" height="40" rx="8"/><text class="t-mono" x="786" y="377" text-anchor="middle">reconcile ×1</text>
+
+          <rect class="bound" x="44" y="456" width="1092" height="136" rx="10"/>
+          <text class="t-bound" x="60" y="580">Stateful node pool</text>
+
+          <rect class="n-focus" x="72" y="470" width="190" height="90" rx="8"/>
+          <text class="t-name" x="167" y="496" text-anchor="middle">PgBouncer ×3</text>
+          <text class="t-tag" x="167" y="513" text-anchor="middle">[CloudNativePG Pooler]</text>
+          <text class="t-body" x="167" y="533" text-anchor="middle">Transaction mode</text>
+          <path class="n-int" d="M320 478A110 8 0 0 1 540 478V552A110 8 0 0 1 320 552Z"/>
+          <path class="edge" d="M320 478A110 8 0 0 0 540 478"/>
+          <text class="t-name" x="430" y="506" text-anchor="middle">PostgreSQL 18</text>
+          <text class="t-tag" x="430" y="522" text-anchor="middle">[CloudNativePG]</text>
+          <text class="t-body" x="430" y="539" text-anchor="middle">primary, sync standby, replica</text>
+          <rect class="n-int" x="590" y="470" width="170" height="90" rx="8"/>
+          <text class="t-name" x="675" y="496" text-anchor="middle">Debezium ×2</text>
+          <text class="t-tag" x="675" y="513" text-anchor="middle">[Strimzi Connect]</text>
+          <text class="t-body" x="675" y="533" text-anchor="middle">Connects directly</text>
+          <rect class="n-int" x="800" y="470" width="160" height="90" rx="8"/>
+          <text class="t-name" x="880" y="496" text-anchor="middle">Kafka ×3</text>
+          <text class="t-tag" x="880" y="513" text-anchor="middle">[Strimzi, KRaft]</text>
+          <text class="t-body" x="880" y="533" text-anchor="middle">RF 3</text>
+          <path class="n-int" d="M990 478A75 8 0 0 1 1140 478V552A75 8 0 0 1 990 552Z"/>
+          <path class="edge" d="M990 478A75 8 0 0 0 1140 478"/>
+          <text class="t-name" x="1065" y="506" text-anchor="middle">ClickHouse ×2</text>
+          <text class="t-tag" x="1065" y="522" text-anchor="middle">[Operator]</text>
+          <text class="t-body" x="1065" y="539" text-anchor="middle">Keeper ×3</text>
+        </svg>
+      </div>
+      <figcaption>A reservation needs only the gateway, <code>api</code>, PgBouncer and PostgreSQL, so no other box can fail a hold. Each role has its own connection pool, so webhook or rating load cannot take connections from reservations. Object storage, the Identity Provider, the PSP and ERP are outside the cluster.</figcaption>
+    </figure>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Aspect</th><th>Development (mini)</th><th>Staging (mini)</th><th>Production</th></tr></thead>
+        <tbody>
+          <tr><th>Cluster</th><td>k3d: 1 server, 2 agents</td><td>3 small nodes, one zone</td><td>3+ zones, separate node pools</td></tr>
+          <tr><th>Values file</th><td><code>values-mini.yaml</code></td><td><code>values-staging.yaml</code></td><td><code>values-prod.yaml</code></td></tr>
+          <tr><th>Billing roles</th><td>All, 1 replica each</td><td>All, 1 each, <code>api</code> 2, autoscaling on</td><td>As drawn, autoscaled</td></tr>
+          <tr><th>PostgreSQL</th><td>1 instance</td><td>Primary, sync standby</td><td>Primary, sync standby, replica</td></tr>
+          <tr><th>Physical ledger shards</th><td>2 databases</td><td>2 databases</td><td>1 cluster at first</td></tr>
+          <tr><th>PgBouncer</th><td>1 pod</td><td>2 pods</td><td>3 pods</td></tr>
+          <tr><th>Kafka</th><td>1 node, RF 1</td><td>3 small nodes, RF 3</td><td>3 brokers, RF 3</td></tr>
+          <tr><th>ClickHouse</th><td>1 replica, 1 Keeper</td><td>1 replica, 1 Keeper</td><td>2 replicas, 3 Keeper</td></tr>
+          <tr><th>PSP</th><td><code>FakePsp</code></td><td>PSP sandbox</td><td>Live PSP</td></tr>
+          <tr><th>Data</th><td>Synthetic</td><td>Synthetic</td><td>Real</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">One set of images and Helm charts; environments differ only in a values file. Development also has a fast loop, where Docker Compose runs dependencies only and the application runs in the IDE. Load results are valid only at production size.</p>
+  </section>
+</div>
+
+</body></html>
