@@ -2,6 +2,8 @@
 
 > Status: **Review** · Updated: 2026-11-07 · Source: analysis of `generic-billing-system-sdd.md` (the **original SDD**)
 
+> **Terminology (2026-11-07).** Tenancy terms follow **DR-112** (*Unified tenant model, B2B2C*). The **tenant** is the business and the isolation unit; the **tenant_user** is its staff; the **tenant_customer** is its customer and holds the wallet; the **tenant_system** is the tenant's service integration; the **platform_user** operates the app. Older entries that say "Client", "Client System", "Customer" or "Tenant" are read through the mapping in DR-112.
+
 The original SDD is strong on *what* and *why*: the money invariants, the wallet lock, memo holds, the outbox, cumulative rating and the descriptive-events rule all come with options, reasons and experiments. It is weaker on *exactly how* where mechanisms meet. Several constraints it states cannot hold together as written (a partitioned table with a unique key that omits the partition key, a pricing model that breaks the "never a negative delta" rule, row-level security that hides the row needed to find the tenant). Guessing wrong at the data and contract layer is expensive to undo once Clients integrate, so these items are decided before any code.
 
 **How to use**
@@ -19,11 +21,12 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
 | 2026-11-06 | Owner | Documents in English; code, UI strings, logs, API errors and commits in English | Master plan §0.1, every document |
 | 2026-11-06 | Owner | Scope: build everything, stages S0–S8 of the original SDD; the SDD's cut order stays as the contingency | Master plan §4 |
 | 2026-11-07 | Owner | All nine spikes S-01…S-09 are deferred. P0-02…10 become `Deferred` and do not gate M0. Documents use the proposed values, tagged `unverified (S-xx)`. Each spike runs before the task named in master plan §5, Phase 0 | Master plan §1.3, §4.1, §5, §8, §9; DR-06, 10, 13, 15, 18, 26, 36, 37, 55, 59, 70, 92, 96 |
-| 2026-11-07 | Owner | New requirement A: the Finance Admin grants each Client System the pricing modes it may use; a Client may in turn give each of its users a subset of those modes. Revoking a Client's mode only marks it expired and leaves every resource already created intact; revoking a user is immediate, since resources can always be assigned to another user | Group S (DR-104, 105, 107, 108); FR-34, 35, 37; master plan §1.3, §3, §5 |
-| 2026-11-07 | Owner | Clarification: there is no admin versus staff split and no named roles; every user of the system is permission-based. A user's "kind" is only where they belong (the platform or one Client), which limits their bits. Customers and machine Client credentials are unchanged | DR-64, 66, 106, 107, 109; FR-35, 36 |
-| 2026-11-07 | Owner | New requirement C: platform and Client are two separate spaces, separate in use cases and not shared, with separate users, permissions and dashboards. A Client's dashboard is addressed `client1.<domain>` or `<domain>/client1` (both supported if possible); the platform `platform.<domain>` or `<domain>/platform`. The same email may be reused across the platform and Clients | DR-106…111; FR-38, 39; DOC-84…90 |
+| 2026-11-07 | Owner | New requirement A: the Finance Admin grants each tenant_system the pricing modes it may use; a Client may in turn give each of its users a subset of those modes. Revoking a tenant's mode only marks it expired and leaves every resource already created intact; revoking a user is immediate, since resources can always be assigned to another user | Group S (DR-104, 105, 107, 108); FR-34, 35, 37; master plan §1.3, §3, §5 |
+| 2026-11-07 | Owner | Clarification: there is no admin versus staff split and no named roles; every user of the system is permission-based. A user's "kind" is only where they belong (the platform or one Client), which limits their bits. Customers and tenant_system credentials are unchanged | DR-64, 66, 106, 107, 109; FR-35, 36 |
+| 2026-11-07 | Owner | New requirement C: platform and Client are two separate spaces, separate in use cases and not shared, with separate users, permissions and dashboards. A tenant's dashboard is addressed `client1.<domain>` or `<domain>/client1` (both supported if possible); the platform `platform.<domain>` or `<domain>/platform`. The same email may be reused across the platform and Clients | DR-106…111; FR-38, 39; DOC-84…90 |
 | 2026-11-07 | Owner | New requirement B: authorization is permission-based, by group, function and action, implemented as a binary mask (bitmask) | DR-106, 109; FR-36; ADR-0026; DOC-83 |
 | 2026-11-06 | Owner | While writing documents, Claude may decide small questions itself and record them as delegated DRs (naming, internal defaults). Money semantics, contracts and cost stay with the Owner | Every later DR |
+| 2026-11-07 | Owner | Unified tenant model (B2B2C): hierarchy is platform_user → tenant (the business and isolation unit) → tenant_customer (wallet holder) → tenant_system (the business service). Supersedes the Client/Tenant/Customer naming; full model and identifier mapping in DR-112 | DR-112; DR-62…111 |
 
 ---
 
@@ -315,7 +318,7 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
 - **Write to:** DOC-14, DOC-21.
 
 ### DR-20 · How are ledger accounts identified across shards?
-- **Problem:** `revenue` is per Client System and currency, and `psp_clearing` is per PSP and currency (original SDD §6.1). With several physical databases these rows must exist on each. If each generated its own UUID, a shard move or a cross-shard report would collide or mismatch. §16 does not say when the rows are created.
+- **Problem:** `revenue` is per tenant_system and currency, and `psp_clearing` is per PSP and currency (original SDD §6.1). With several physical databases these rows must exist on each. If each generated its own UUID, a shard move or a cross-shard report would collide or mismatch. §16 does not say when the rows are created.
 - **Decision (proposed):** `ledger_account.id = UUIDv5(fixed namespace, "<type>:<scope>:<currency>")`, for example `revenue:<client_id>:VND`, `psp_clearing:vnpay:VND`, `adjustment::VND`, `customer_wallet:<account_id>:VND`. The same ID results on every database. Rows are inserted lazily with `ON CONFLICT DO NOTHING` in the posting transaction, guarded by an in-process set of known IDs, so the insert runs only on a cache miss.
 - **Write to:** DOC-14, DOC-21, DOC-25.
 
@@ -460,7 +463,7 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
 - **Write to:** DOC-14, DOC-22, DOC-32, ADR-0006.
 
 ### DR-31 · Where do the per-Client reservation parameters live?
-- **Problem:** Original SDD §7.2 sets TTL, window, overage and buffer "per Client System", with no table, endpoint or statement of what a later change does to reservations already open.
+- **Problem:** Original SDD §7.2 sets TTL, window, overage and buffer "per tenant_system", with no table, endpoint or statement of what a later change does to reservations already open.
 - **Decision (proposed):** Columns on `platform.client_system`: `default_ttl_seconds`, `max_total_lifetime_seconds`, `late_commit_window_seconds`, `overage_policy`, `estimate_buffer_pct`, `rate_limits jsonb`. Read through `PlatformDirectory`, cached 30 s. Set on `POST /v1/admin/client-systems` and changed by `PATCH /v1/admin/client-systems/{id}`. A reservation snapshots `late_commit_window_seconds` and `overage_policy` at creation, so a change never alters one already open.
 - **Write to:** DOC-15, DOC-22, DOC-43.
 
@@ -577,7 +580,7 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
 - **Write to:** DOC-24, DOC-77, DOC-79, ADR-0009.
 
 ### DR-38 · Who may see which event? — ⚠ deviates from the original SDD
-- **Problem:** Original SDD §12.1 says "neither Client System can read the other's reservations". But `billing.events.v1`, webhook subscriptions (§11.2) and the feed `GET /v1/accounts/{id}/events` (§11.6) all work per account, and a tenant shares one wallet across Clients. So a Client subscribed to `reservation.committed` or reading the feed would see another Client's reservations and charges. §8.4's envelope requires `tenant_id` and `account_id`, which `price_plan.published` and `webhook_delivery.dead` do not have.
+- **Problem:** Original SDD §12.1 says "neither tenant_system can read the other's reservations". But `billing.events.v1`, webhook subscriptions (§11.2) and the feed `GET /v1/accounts/{id}/events` (§11.6) all work per account, and a tenant shares one wallet across Clients. So a Client subscribed to `reservation.committed` or reading the feed would see another tenant's reservations and charges. §8.4's envelope requires `tenant_id` and `account_id`, which `price_plan.published` and `webhook_delivery.dead` do not have.
 - **Decision (proposed):** Events carry `client_id` when they belong to one Client. This table is the contract, and a contract test walks it.
 
   | Group | `account_id` | `client_id` | Delivered to | In feed |
@@ -586,7 +589,7 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
   | Balance, Payment, Refund, Invoice, `billing_cycle.closed` | Yes | None | Every Client with a grant on the tenant | Same |
   | `price_plan.published`, `webhook_endpoint.disabled`, `webhook_delivery.dead` | None | Owner | Owner only | No |
 
-  Matching adds: `event.client_id IS NULL AND grant exists` or `event.client_id = subscription.client_id`. Feed adds: `client_id IS NULL OR client_id = :caller`. Invoice event payloads carry totals only, never other Clients' lines. Key for non-account events: `client_id`.
+  Matching adds: `event.client_id IS NULL AND grant exists` or `event.client_id = subscription.client_id`. Feed adds: `client_id IS NULL OR client_id = :caller`. Invoice event payloads carry totals only, never other tenants' lines. Key for non-account events: `client_id`.
 - **Consequences:** Cursor offsets may skip values for one caller, which is still ordered and complete for that caller.
 - **Write to:** DOC-09, DOC-26, DOC-30, DOC-31, DOC-54, ADR-0010.
 
@@ -695,9 +698,9 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
 - **Write to:** DOC-17, DOC-27, DOC-29.
 
 ### DR-47 · How is a plan chosen for an account, and how does a draft get previewed? — ⚠ deviates from the original SDD
-- **Problem:** Original SDD §9.1's `PriceAssignment` "falls back to the Client System's default plan". §14.1 attaches a subscription to a plan's `FLAT` components, but a hybrid plan's usage must rate on the same plan, and nothing links the two. §11.7 treats `storage.basic` and `storage.plus` as products, while `PATCH` changes "plan". §18.1's tier preview calls `POST /v1/estimates`, whose input (§9.3) cannot name a draft version.
+- **Problem:** Original SDD §9.1's `PriceAssignment` "falls back to the tenant_system's default plan". §14.1 attaches a subscription to a plan's `FLAT` components, but a hybrid plan's usage must rate on the same plan, and nothing links the two. §11.7 treats `storage.basic` and `storage.plus` as products, while `PATCH` changes "plan". §18.1's tier preview calls `POST /v1/estimates`, whose input (§9.3) cannot name a draft version.
 - **Decision (proposed):**
-  - Resolution for `(account, product)`: active subscription's plan → `price_assignment` → the Client's `client_product.default_plan_id`. None: `422 no_applicable_price`.
+  - Resolution for `(account, product)`: active subscription's plan → `price_assignment` → the tenant's `client_product.default_plan_id`. None: `422 no_applicable_price`.
   - Version: at reserve, the latest `PUBLISHED` with `effective_from <= now`; for streaming, the version effective at cycle start (original SDD §9.4).
   - `storage.basic` and `storage.plus` are **plans** of product `storage`. `POST /v1/subscriptions` takes `{ "account_id", "product", "plan_code" }`, and `PATCH` takes `{ "plan_code", "prorate": true }`.
   - `POST /v1/estimates` accepts optional `plan_version_id`, allowed only for a user holding `pricing.price_plan.read` on platform scope (DR-106), and may name a `DRAFT` version.
@@ -723,7 +726,7 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
 - **Decision (proposed):**
   - **Usage only**: this phase accepts no other client event type.
   - **REST and inbound webhook:** body `{ "events": [ … ] }`, 1–1,000 events. Response `202`: `{ "accepted": 998, "quarantined": 1, "rejected": [{ "index": 3, "event_id": "…", "code": "unknown_meter" }] }`. Codes: `unknown_meter`, `unknown_dimension`, `account_not_granted`, `occurred_at_in_future`, `invalid_quantity`, `invalid_reservation_id`.
-  - **Kafka:** one event per message, key `client_id`, header `Billing-Signature` in the scheme of original SDD §11.4 with the Client's inbound secret. The listener still uses mTLS; the signature is what authenticates the `client_id`. A wrong signature is dropped, counted per principal and alerted.
+  - **Kafka:** one event per message, key `client_id`, header `Billing-Signature` in the scheme of original SDD §11.4 with the tenant's inbound secret. The listener still uses mTLS; the signature is what authenticates the `client_id`. A wrong signature is dropped, counted per principal and alerted.
   - **Rejections on the Kafka channel:** `ingest` writes `{kind: "REJECTED"}` to `usage.exceptions.v1`; `worker` stores them in `metering.usage_rejection`, kept 30 days and read through `GET /v1/usage/rejections`.
   - `quantity` is a JSON string or number parsed to `BigDecimal`, scale ≤ 9. `reservation_id` is a public ID checked for format only: a Client marking its own usage as reserved only forgoes its own revenue.
 - **Write to:** DOC-09, DOC-28, DOC-53, DOC-55.
@@ -855,7 +858,7 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
 - **Write to:** DOC-15, DOC-16, DOC-30, DOC-41.
 
 ### DR-61 · What are the delivery headers, and how do dead-delivery events avoid a loop? — ⚠ deviates from the original SDD
-- **Problem:** Original SDD §11.3 publishes `webhook_delivery.dead` to a Client's other endpoints. If those are also failing, each death creates a new event that dies in turn, a loop between two dead endpoints. §11.5 disables an endpoint after 7 days with no success, with the fate of its pending rows unstated, and §11.4 and §17.3 name only some headers.
+- **Problem:** Original SDD §11.3 publishes `webhook_delivery.dead` to a tenant's other endpoints. If those are also failing, each death creates a new event that dies in turn, a loop between two dead endpoints. §11.5 disables an endpoint after 7 days with no success, with the fate of its pending rows unstated, and §11.4 and §17.3 name only some headers.
 - **Decision (proposed):**
   - Headers: `Billing-Signature`, `Billing-Event-Id`, `Billing-Event-Type`, `Billing-Delivery-Id`, `Billing-Api-Version`, `traceparent`, `User-Agent: GenericBilling-Webhook/1`.
   - No `webhook_delivery.dead` is published for a delivery whose event type starts with `webhook_`.
@@ -868,43 +871,44 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
 ## K. Tenancy and security
 
 ### DR-62 · How does an ID-addressed request find its tenant under RLS? — ⚠ deviates from the original SDD
-- **Problem:** A real contradiction. Original SDD §12.1 takes a Client's tenant from "the requested account's tenant". But `POST /v1/reservations/{id}/commit`, `release`, `extend`, `GET /v1/reservations/{id}` and `GET /v1/charges/{id}` name no account, and the ID carries a shard, not a tenant. §6.5 says a commit "first reads its reservation to learn the wallet". §12.3 says that with no tenant set, RLS returns zero rows, so that first read finds nothing. The PSP callback (§13.1) and the same-key replay path have the same problem.
-- **Options:** (1) Put the tenant in the public ID: a long-lived leak of identifiers, and a format the contract would be stuck with. (2) A second RLS policy on `client_id` for Client reads: spreads a second isolation axis across many tables. (3) A narrow locator that bypasses RLS for immutable identifiers only.
+- **Problem:** A real contradiction. Original SDD §12.1 takes a tenant's tenant from "the requested account's tenant". But `POST /v1/reservations/{id}/commit`, `release`, `extend`, `GET /v1/reservations/{id}` and `GET /v1/charges/{id}` name no account, and the ID carries a shard, not a tenant. §6.5 says a commit "first reads its reservation to learn the wallet". §12.3 says that with no tenant set, RLS returns zero rows, so that first read finds nothing. The PSP callback (§13.1) and the same-key replay path have the same problem.
+- **Options:** (1) Put the tenant in the public ID: a long-lived leak of identifiers, and a format the contract would be stuck with. (2) A second RLS policy on `tenant_system_id` for tenant_system reads: spreads a second isolation axis across many tables. (3) A narrow locator that bypasses RLS for immutable identifiers only.
 - **Decision (proposed):** Option 3.
   ```java
   public interface TenantLocator {
       Optional<Located> locate(LocatorKind kind, UUID id, short logicalShard);
   }
-  public record Located(TenantId tenant, AccountId account, WalletId wallet, @Nullable ClientId owner) {}
+  public record Located(TenantId tenant, CustomerId customer, AccountId account, WalletId wallet, @Nullable TenantSystemId owner) {}
   ```
-  - Uses role `billing_locator` (DR-17), with column-level `SELECT` on `reservation`, `charge`, `payment`, `refund`, `invoice`, `subscription`: only `id`, `tenant_id`, `account_id`, `wallet_id`, `client_id`. No amounts.
+  - Uses role `billing_locator` (DR-17), with column-level `SELECT` on `reservation`, `charge`, `payment`, `refund`, `invoice`, `subscription`: only `id`, `tenant_id`, `customer_id`, `account_id`, `wallet_id`, `tenant_system_id`. No amounts.
   - Cached in Caffeine for 1 hour (immutable). A reserve fills the cache on its replica.
-  - Sequence for a Client: locate → `owner` must equal the caller → grant must exist (`PlatformDirectory`, cached 30 s) → bind the tenant → normal RLS transaction. Any failure is `404`.
-  - Customers use the tenant from their token, and RLS decides. Finance Admins: DR-65.
+  - Sequence for a tenant_system: locate → `owner` must equal the caller → enrollment must exist (`PlatformDirectory`, cached 30 s) → bind the tenant → normal RLS transaction. Any failure is `404`.
+  - tenant_customers use the tenant and customer from their token, and RLS decides. platform_users: DR-65.
   - An ArchUnit rule limits the port to `adapter.in`. EXP-12 covers it.
 - **Consequences:** One extra read per first touch of an ID on a replica. Grant revocation takes effect within 30 s.
 - **Write to:** DOC-19, DOC-26, DOC-46, ADR-0014.
 
 ### DR-63 · Which tables are exempt from RLS? — ⚠ deviates from the original SDD
-- **Problem:** Original SDD §5.5 fails the build for any table with `tenant_id` lacking a forced policy. §12.1's lookup in `platform.account_directory` and `client_grant` must work **before** a tenant is known, and both have `tenant_id`. The rule and the mechanism cannot both hold.
-- **Decision (proposed):** Exactly three tables are exempt, named in a fixed list inside the RLS coverage test: `platform.tenant`, `platform.account_directory`, `platform.client_grant`. They hold identifiers and no money. Only `PlatformDirectory` reads them (ArchUnit). `platform.tenant_billing_profile` has personal data and stays under RLS. Adding to the list needs a DR.
+- **Problem:** Original SDD §5.5 fails the build for any table with `tenant_id` lacking a forced policy. §12.1's lookup in `platform.account_directory` and `customer_enrollment` must work **before** a tenant is known, and both have `tenant_id`. The rule and the mechanism cannot both hold.
+- **Decision (proposed):** Exactly three tables are exempt, named in a fixed list inside the RLS coverage test: `platform.customer`, `platform.account_directory`, `platform.customer_enrollment`. They hold identifiers and no money. Only `PlatformDirectory` reads them (ArchUnit). `platform.customer_billing_profile` has personal data and stays under RLS. Adding to the list needs a DR.
 - **Write to:** DOC-19, DOC-26, ADR-0014.
 
 ### DR-64 · Which identity provider, with which claims and users?
-- **Problem:** Original SDD §4.3 and §22.2 leave the production provider open. It mentions a `tenant_id` claim and a `finance_admin` role, but no token lifetime, mapping from token to `client_system`, or how a Customer user comes to exist.
+- **Problem:** Original SDD §4.3 and §22.2 leave the production provider open. It mentions a `tenant_id` claim and a `finance_admin` role, but no token lifetime, mapping from token to `tenant_system`, or how a tenant_customer user comes to exist.
 - **Decision (proposed):** Self-hosted Keycloak in every environment, backed by CloudNativePG, with any OIDC provider able to replace it if it issues the same claims.
 
   | Claim | Value | Used for |
   | --- | --- | --- |
   | `sub` | User or service account | Caller, audit |
-  | `azp` | OIDC client | Maps to `client_system.idp_client_id` |
-  | `tenant_id` | UUID, from a user attribute | Customer tenant context |
-  | `realm_access.roles` | `customer`, `demo_operator` (realm `billing`); `billing_user` (platform and Client realms); `finance_admin` removed, see below | Door only; rights come from permission bits (DR-106) |
+  | `azp` | OIDC client | Maps to `tenant_system.idp_client_id` |
+  | `tenant_id` | UUID, from a user attribute | Business (tenant) context |
+  | `customer_id` | UUID, from a user attribute | Tenant-customer context (within the tenant) |
+  | `realm_access.roles` | `demo_operator` (realm `billing`); `billing_user` (platform and tenant realms); `finance_admin` removed, see below | Door only; rights come from permission bits (DR-106) |
   | `aud` | `billing-api` | Validated at gateway and application |
 
-  Access token 5 minutes. JWKS cached 1 hour, and last good keys stay in use on failure (original SDD §19.3). Finance Admins require OTP. Customer users are created by a Finance Admin in Keycloak in this phase, with no self-signup and one role per tenant. There are no finer Customer roles.
+  Access token 5 minutes. JWKS cached 1 hour, and last good keys stay in use on failure (original SDD §19.3). platform_users with finance bits require OTP. tenant_customer users are provisioned by a platform_user in Keycloak in this phase, with no self-signup and one identity per tenant. There are no finer tenant-customer roles.
 
-  **Amended by DR-107:** there are three kinds of realm. `billing` keeps Customers, machine Clients and `demo_operator`. `billing-platform` holds platform users, and `billing-client-<code>` holds each Client's users, so the same email can exist once per space. The role `finance_admin` is removed; the realm role `billing_user` only opens the door to a row in `platform.platform_user` or `platform.client_user`, and rights come from permission bits (DR-106). Client tokens also carry `billing_space` and `billing_client_id`.
+  **Amended by DR-107:** there are three kinds of realm. `billing` keeps tenant_customers, tenant_systems and `demo_operator`. `billing-platform` holds platform users, and `billing-tenant-<code>` holds each tenant's users, so the same email can exist once per space. The role `finance_admin` is removed; the realm role `billing_user` only opens the door to a row in `platform.platform_user` or `platform.client_user`, and rights come from permission bits (DR-106). Tenant tokens also carry `billing_space` and `billing_tenant_id`; tenant-customer tokens add `billing_customer_id`.
 - **Write to:** DOC-26, DOC-41, DOC-72, ADR-0023.
 
 ### DR-65 · How does a Finance Admin name a tenant, and how do cross-tenant queues work? — ⚠ deviates from the original SDD
@@ -919,9 +923,9 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
 
 ### DR-66 · What is the endpoint × role matrix?
 - **Problem:** Original SDD §17.1 gives only "`/v1/admin/*` needs `finance_admin`". §11.7 says a Client never holds Customer rights, and §17 says "everything the portal does, a Client could do with suitable permissions". Nobody can implement authorization from that.
-- **Decision (proposed):** C = Client, U = Customer, F = Finance Admin. Scope is enforced as DR-38 and DR-62.
+- **Decision (proposed):** TS = tenant_system, TC = tenant_customer, P = platform user (a "Finance Admin" is a platform user holding the finance bits). Scope is enforced as DR-38 and DR-62.
 
-  | Endpoints | C | U | F |
+  | Endpoints | TS | TC | P |
   | --- | --- | --- | --- |
   | Estimates | own | own tenant | any, draft preview |
   | Reservations (all) | own | read own tenant | read |
@@ -939,11 +943,11 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
 
   `/v1/psp/*/callback` and `/v1/inbound/*` have no token and are authenticated by signature only.
 
-  **Amended by DR-106 and DR-109:** the F column is no longer a role. It means "a platform user", and each `/v1/admin/*` endpoint names one permission code (`group.function.action`) the user must hold. A new column K ("a Client user") covers `/v1/console/*`, and a token in the wrong space is `403 wrong_space`. C and U are unchanged. The path is the outer boundary; the permission bit is the inner check.
+  **Amended by DR-106 and DR-109:** the P column is no longer a role. It means "a platform_user", and each `/v1/admin/*` endpoint names one permission code (`group.function.action`) the user must hold. A new column K ("a tenant_user") covers `/v1/tenant/*`, and a token in the wrong space is `403 wrong_space`. TS and TC are unchanged. The path is the outer boundary; the permission bit is the inner check.
 - **Write to:** DOC-41, DOC-53.
 
 ### DR-67 · Where is each rate limit enforced? — ⚠ deviates from the original SDD
-- **Problem:** Original SDD §12.4 places "per client and per tenant" buckets at the gateway, but a Client's token has no tenant, and the tenant is known only after the account is looked up (§12.1). "2,000 events per second per client" cannot be counted at a gateway that sees requests, not events. "Reservations per account" needs the account inside the body or behind an ID.
+- **Problem:** Original SDD §12.4 places "per client and per tenant" buckets at the gateway, but a tenant's token has no tenant, and the tenant is known only after the account is looked up (§12.1). "2,000 events per second per client" cannot be counted at a gateway that sees requests, not events. "Reservations per account" needs the account inside the body or behind an ID.
 - **Decision (proposed):**
 
   | Limit | Default | Where | Key | Over the limit |
@@ -1255,7 +1259,7 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
 
   A natural key makes admin creation idempotent for the seed job: `tenant.code`, `client_system.code`, `(account.tenant_id, account.code)`, `plan.code`. A duplicate returns `409` with the existing `id`.
 
-  **Added by DR-109:** pricing-mode grants, platform and Client users, permission catalogs and the `/v1/console/*` family.
+  **Added by DR-109:** pricing-mode grants, platform and tenant_users, permission catalogs and the `/v1/console/*` family.
 - **Write to:** DOC-53, DOC-39.
 
 ### DR-88 · What are the remaining API conventions?
@@ -1293,12 +1297,12 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
   | Hosting | `nginxinc/nginx-unprivileged`, behind the ingress | Original SDD §19.1 "Portal static files" |
   | Security | CSP with no inline scripts; CORS at the gateway for the portal origin only | |
 
-  **Amended by DR-110 and DR-111:** the portal becomes three front-ends in one repository (platform dashboard, Client dashboard, Customer portal) built separately and served by space; runtime config and `<base href>` are rendered per request so one image serves both host and path addressing.
+  **Amended by DR-110 and DR-111:** the portal becomes three front-ends in one repository (platform dashboard, tenant dashboard, tenant-customer portal) built separately and served by space; runtime config and `<base href>` are rendered per request so one image serves both host and path addressing.
 - **Write to:** DOC-11, DOC-56, DOC-57.
 
 ### DR-90 · What is the exact screen list and language? — ⚠ deviates from the original SDD
-- **Problem:** Original SDD §18's flow figure has "Finance overview" and "Payment result", which the screen table omits. FR-01 has Finance Admins register Client Systems and grants, but no screen does this, while the cut order expects admin screens may fall to "a CLI" that is not defined. §22.2 leaves the end-user language open.
-- **Decision (proposed):** 12 screens: Customer: Account overview, Top up (with Payment result), Transactions, Invoices, Refunds. Finance Admin: Finance overview, Price plans, Refund approvals, Reconciliation, Tenants and limits (with quarantine), Client Systems and grants (added), Webhook deliveries. An account selector appears in the Customer header. English only at first, with all strings through i18next. The cut fallback is `make admin-cli`, a thin `scripts/billing-admin` script over the admin API, written only if the cut happens. **Amended by DR-111:** 18 screens in three front-ends. The platform dashboard gains "Platform users and permissions" and extends "Client Systems and grants" with pricing modes, Client users and realm; a Client dashboard (Overview, Users and permissions, Price plans, Products and meters, Resources and reassignment) is added.
+- **Problem:** Original SDD §18's flow figure has "Finance overview" and "Payment result", which the screen table omits. FR-01 has Finance Admins register tenant_systems and grants, but no screen does this, while the cut order expects admin screens may fall to "a CLI" that is not defined. §22.2 leaves the end-user language open.
+- **Decision (proposed):** 12 screens: Customer: Account overview, Top up (with Payment result), Transactions, Invoices, Refunds. Finance Admin: Finance overview, Price plans, Refund approvals, Reconciliation, Tenants and limits (with quarantine), tenant_systems and grants (added), Webhook deliveries. An account selector appears in the Customer header. English only at first, with all strings through i18next. The cut fallback is `make admin-cli`, a thin `scripts/billing-admin` script over the admin API, written only if the cut happens. **Amended by DR-111:** 18 screens in three front-ends. The platform dashboard gains "Platform users and permissions" and extends "tenant_systems and grants" with pricing modes, tenant_users and realm; a tenant dashboard (Overview, Users and permissions, Price plans, Products and meters, Resources and reassignment) is added.
 - **Write to:** DOC-56, DOC-59, DOC-70.
 
 ---
@@ -1460,7 +1464,7 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
   - Check SQL in `deploy/sql/invariants/*.sql`: copied into the `billing` jar at build, and read directly by the runner.
   - Runner access: as a Kubernetes Job in the cluster using `billing_readonly`, on mini and staging.
   - Fixtures: YAML under `demo-client/conformance/fixtures/`, one per cell, with the hand-calculated values as literal numbers or the named `prorate` formula.
-  - Demo Client's database migrations: Flyway in its own project.
+  - Demo tenant's database migrations: Flyway in its own project.
   - The staging Demo Client has its own DNS name under the staging ingress. If the provider cannot hairpin, a split-horizon DNS entry points to the ingress service, which still passes SSRF checks only if that address is public; otherwise a new DR.
 - **Write to:** DOC-39, DOC-40, DOC-74.
 
@@ -1482,7 +1486,7 @@ The original SDD is strong on *what* and *why*: the money invariants, the wallet
 
 Added on 2026-11-07 from three Owner requirements (decision log): A, entitlement by pricing mode with expiry and per-user modes; B, permission bitmask; C, two separate spaces. The original SDD has three fixed roles (Client, Customer, Finance Admin) and no notion of users who belong to a Client, of entitlement to a pricing mode, or of fine-grained rights.
 
-Vocabulary: a **user** is one person who signs in to operate the system, and everything they may do is a set of permission bits; there are no roles. The system has two **spaces** with separate use cases: the **platform** (the operator of Billing; its users are **platform users**) and each **Client** (a customer organization that uses Billing; its users are **Client users**). The spaces share code but not identities, catalogs, endpoints, tables or dashboards. **Customers** (tenant users who top up and view invoices) and machine **Client System** credentials are outside both and keep their fixed access (DR-66). A **pricing mode** is one of the six modes of original SDD §9.1.
+Vocabulary: a **user** is one person who signs in to operate the system, and everything they may do is a set of permission bits; there are no roles. The system has two **spaces** with separate use cases: the **platform** (the operator of Billing; its users are **platform users**) and each **tenant** (a business that uses Billing; its users are **tenant_users**). The spaces share code but not identities, catalogs, endpoints, tables or dashboards. **tenant_customers** (a tenant's customers who top up and view invoices) and machine **tenant_system** credentials live inside a tenant and keep their fixed access (DR-66). A **pricing mode** is one of the six modes of original SDD §9.1. Identifier mapping between the old and new names is in DR-112.
 
 ### DR-104 · How is a plan tied to a pricing mode? — ⚠ deviates from the original SDD
 - **Problem:** Original SDD §9.1 and §11.8 say the six pricing modes are "one model" and "not an enum", so no row says which mode a plan belongs to. Entitlement by mode (DR-105) needs something to check against.
@@ -1504,11 +1508,11 @@ Vocabulary: a **user** is one person who signs in to operate the system, and eve
     A failure is `422 pricing_mode_mismatch` naming the component.
   - Rating never reads `pricing_mode`: it changes who may create or publish plans, not how money is computed. The one-model rule of §9.1 holds.
   - EXP-18's enum-coverage test (original SDD §11.8) now also reads `pricing_mode` from `api/openapi` and requires a cell for each value. This replaces the "not an enum" remark and makes the six-mode check mechanical.
-- **Consequences:** Existing plans in a seed or migration must be labeled; the Demo Client seeds one label per cell. A hybrid plan consumes only the `HYBRID` entitlement, not `SUBSCRIPTION` and `USAGE_BASED`.
+- **Consequences:** Existing plans in a seed or migration must be labeled; the Demo tenant seeds one label per cell. A hybrid plan consumes only the `HYBRID` entitlement, not `SUBSCRIPTION` and `USAGE_BASED`.
 - **Write to:** DOC-15, DOC-27, DOC-40, DOC-53.
 
-### DR-105 · How does a Client System get a pricing mode, and what does expiry do?
-- **Problem:** Requirement A: a Finance Admin permits each Client System certain pricing modes. Later withdrawal must not delete or break what the Client already created. Billing also publishes only facts and never stops a resource (FR-30), and open reservations must still settle (NFR-01).
+### DR-105 · How does a tenant_system get a pricing mode, and what does expiry do?
+- **Problem:** Requirement A: a Finance Admin permits each tenant_system certain pricing modes. Later withdrawal must not delete or break what the tenant already created. Billing also publishes only facts and never stops a resource (FR-30), and open reservations must still settle (NFR-01).
 - **Decision (proposed):**
   - Table `platform.client_pricing_mode` (no `tenant_id`, no money; Ops DB):
     ```sql
@@ -1520,8 +1524,8 @@ Vocabulary: a **user** is one person who signs in to operate the system, and eve
     ```
     A mode is **active** at time `t` when `starts_at <= t AND (expires_at IS NULL OR expires_at > t)`. A trigger lets only `expires_at`, `expired_by` and `expire_reason` change after insert; a row is never deleted.
   - **Revoking is expiring.** `POST /v1/admin/client-systems/{id}/pricing-modes/{mode}/expire` sets `expires_at = now()` (or a future time, to schedule) and needs a `reason`. A later grant of the same mode inserts a new row, so history stays.
-  - `POST /v1/admin/client-systems` takes an optional `pricing_modes` list (default empty: the Client can sell nothing until granted). The seed job grants all six to `demo-rental`.
-  - **What expiry blocks and what it leaves alone.** A mode that is not active stops *extending* the Client's footprint in that mode and nothing else:
+  - `POST /v1/admin/client-systems` takes an optional `pricing_modes` list (default empty: the tenant can sell nothing until granted). The seed job grants all six to `demo-rental`.
+  - **What expiry blocks and what it leaves alone.** A mode that is not active stops *extending* the tenant's footprint in that mode and nothing else:
 
     | Blocked while the mode is not active (`403 pricing_mode_not_granted`) | Never blocked |
     | --- | --- |
@@ -1532,17 +1536,17 @@ Vocabulary: a **user** is one person who signs in to operate the system, and eve
 
     So every plan, version, product, meter, subscription, reservation, charge and invoice created earlier stays exactly as it was, and a running service keeps being billed. Winding down is never blocked.
   - The check is **never cached**: one indexed read on the Ops DB primary per blocked-type call. These calls are rare, and an expired mode is refused on the next call, not within 30 s.
-  - Invariant: after any change, every `PUBLISHED` version of a Client is on a plan whose mode was active when the version was published. A build test cannot prove this over time, so the publish handler checks it and a nightly job counts published versions whose mode had no active row at `published_at` (alert on any).
-  - Notification: audit row only. A webhook event for expiry is Later; events are scoped by account (DR-38) and a mode belongs to a Client.
-- **Consequences:** The Client's runtime never sees a failure from expiry. A Client who wants to stop *selling* in a mode has no more than this mark; ending already-running services is the Client's own decision (FR-30). The open question for the Owner: should new reservations on an existing plan also be refused after expiry? Proposed answer is no, for the reasons above.
+  - Invariant: after any change, every `PUBLISHED` version of a tenant is on a plan whose mode was active when the version was published. A build test cannot prove this over time, so the publish handler checks it and a nightly job counts published versions whose mode had no active row at `published_at` (alert on any).
+  - Notification: audit row only. A webhook event for expiry is Later; events are scoped by account (DR-38) and a mode belongs to a tenant.
+- **Consequences:** The tenant's runtime never sees a failure from expiry. A tenant who wants to stop *selling* in a mode has no more than this mark; ending already-running services is the tenant's own decision (FR-30). The open question for the Owner: should new reservations on an existing plan also be refused after expiry? Proposed answer is no, for the reasons above.
 - **Write to:** DOC-15, DOC-27, DOC-33, DOC-41, DOC-51 (FL-34), DOC-53, DOC-83.
 
 ### DR-106 · How are permissions modeled, and how is the bitmask laid out? — ⚠ deviates from the original SDD
-- **Problem:** Requirement B: rights are given by group, function and action, as a permission set implemented with a binary mask. Original SDD §17 and §12 have role checks only (`finance_admin`), and DR-66 is a role × endpoint table. A role name cannot express "may publish plans but not delete them". Requirement C (DR-110, DR-111) adds that the platform and a Client are two **separate spaces** with separate use cases, so their permissions must not share one list.
+- **Problem:** Requirement B: rights are given by group, function and action, as a permission set implemented with a binary mask. Original SDD §17 and §12 have role checks only (`finance_admin`), and DR-66 is a role × endpoint table. A role name cannot express "may publish plans but not delete them". Requirement C (DR-110, DR-111) adds that the platform and a tenant are two **separate spaces** with separate use cases, so their permissions must not share one list.
 - **Options:** (1) Roles with a hard-coded endpoint list: what exists now, too coarse. (2) A permission table with one row per (user, permission): readable, but each check is a join and a set of rows to cache. (3) One bit per permission in a fixed-width mask on the user: a check is one AND.
 - **Decision (proposed):** Option 3, with **two catalogs**.
   - **Three levels.** A **permission** is `<group>.<function>.<action>`, such as `pricing.price_plan.publish`. Each catalog lives in code, not in a table.
-  - **Two catalogs, no shared bits.** `PlatformPermission` (held by platform users) and `ClientPermission` (held by Client users) are two enums with two bit spaces, two lock files and two columns. A platform user can never hold a Client bit, and the reverse, because the types differ: there is no `BOTH` and no scope mask to forget.
+  - **Two catalogs, no shared bits.** `PlatformPermission` (held by platform users) and `ClientPermission` (held by tenant_users) are two enums with two bit spaces, two lock files and two columns. A platform user can never hold a tenant bit, and the reverse, because the types differ: there is no `BOTH` and no scope mask to forget.
   - **Bit layout.** Per catalog, a global index, one bit per permission, **assigned once and never reused or renumbered**. Width is fixed at **256 bits**; version 1 uses about 59 (platform) and 22 (client), planned. Storage: PostgreSQL `bit(256)`, Java `long[4]`. Bit `i` is `set_bit(mask, i, 1)` / `get_bit(mask, i)` in SQL and bit `i` of the long array in Java; a conversion test proves both agree.
   - **Lock files.** `platform-permission-catalog.lock` and `client-permission-catalog.lock` (code → bit, `ACTIVE` or `RETIRED`) are committed. A build test fails when a code's bit changes, a bit is reused, a code disappears, or a new code is missing from its file. A retired permission keeps its bit forever.
   - **Platform catalog (planned; final table with bit numbers in DOC-83):**
@@ -1553,23 +1557,23 @@ Vocabulary: a **user** is one person who signs in to operate the system, and eve
     | `entitlement` | `pricing_mode`: read, grant, expire |
     | `finance` | `refund`: read, approve, reject · `adjustment`: read, create, approve, reject · `reversal`: create · `reconciliation`: read, resolve · `usage_quarantine`: read, resolve · `rating_cursor`: resume · `invoice`: read, void |
     | `ops` | `webhook_delivery`: read, redeliver · `overview`: read |
-    | `client_support` | On a **named Client's** catalog: `price_plan`: read, create, update, delete, publish · `price_assignment`: read, create, delete · `product`: read, create, update · `meter`: read, create, update |
+    | `client_support` | On a **named tenant's** catalog: `price_plan`: read, create, update, delete, publish · `price_assignment`: read, create, delete · `product`: read, create, update · `meter`: read, create, update |
     | `users` | `platform_user`: read, create, set_permissions, deactivate · `client_user`: read, create, set_permissions, set_modes, deactivate · `client_resource`: reassign |
 
-  - **Client catalog (planned):**
+  - **tenant catalog (planned):**
 
     | Group | Function: actions |
     | --- | --- |
     | `pricing` | `price_plan`: read, create, update, delete, publish · `price_assignment`: read, create, delete |
     | `catalog` | `product`: read, create, update · `meter`: read, create, update |
     | `access` | `user`: read, create, set_permissions, set_modes, deactivate · `resource`: reassign, manage_any |
-    | `profile` | `client`: read (the Client's own profile and its pricing modes with expiry) |
+    | `profile` | `client`: read (the tenant's own profile and its pricing modes with expiry) |
 
     On both sides, `create` on `price_plan` covers a new plan and a new version of an existing plan; `update` is `PATCH` of a `DRAFT` version only; `delete` is deleting a `DRAFT` version (DR-87). Published versions are never edited or deleted.
-  - **Extending actions** are the ones DR-105 blocks when the mode is not active: `price_plan.create`, `price_plan.publish`, `price_assignment.create`, setting a product's `default_plan_id`, on either side, and subscription create or change-to (machine Client, no user bit). Only these consult the mode.
+  - **Extending actions** are the ones DR-105 blocks when the mode is not active: `price_plan.create`, `price_plan.publish`, `price_assignment.create`, setting a product's `default_plan_id`, on either side, and subscription create or change-to (tenant_system, no user bit). Only these consult the mode.
   - **Wire form.** A request names permissions as codes, with wildcards at group or function level: `["pricing.price_plan.*", "catalog.*", "access.user.read"]`. The server expands wildcards into bits **at that moment** and stores only bits, so a permission added later is not silently granted by an old `catalog.*`. A response shows the code list and the mask in hex.
   - **No roles and no presets.** There is no `admin` or `staff` kind of user and no named bundle of rights. A user is exactly its permission bits (plus its modes, DR-107). Older entries that say "Finance Admin" mean *a platform user holding the permission for that action*, not a role.
-  - **Evaluation.** One function, `PermissionService.require(actor, permission, @Nullable resource)`; no controller or handler tests a role name or a user kind. The caller's **space** is fixed first, by the token's issuer (DR-107, DR-110), and a platform token on a Client endpoint, or the reverse, is `403 wrong_space` before any bit is read. Then, for user `U` and permission `p` of U's own catalog:
+  - **Evaluation.** One function, `PermissionService.require(actor, permission, @Nullable resource)`; no controller or handler tests a role name or a user kind. The caller's **space** is fixed first, by the token's issuer (DR-107, DR-110), and a platform token on a tenant endpoint, or the reverse, is `403 wrong_space` before any bit is read. Then, for user `U` and permission `p` of U's own catalog:
     ```
     allowed(U, p, R) =
           U.status = ACTIVE
@@ -1582,17 +1586,17 @@ Vocabulary: a **user** is one person who signs in to operate the system, and eve
                        OR get_bit(U.permissions, bit(access.resource.manage_any)) = 1 ) ) )  -- DR-108
     ```
     A denial is `403 permission_denied` with `required` set to the code, so a developer sees which bit is missing. A mode denial is `403 pricing_mode_not_granted`; a manager denial is `403 not_resource_manager`.
-  - **No escalation.** Inside one space, a user may set on another user only bits that the setter holds (`403 grant_exceeds_own_permissions`), and never edits their own mask (`403 cannot_edit_self`). Across spaces the platform is the root of trust: a platform user holding `users.client_user.set_permissions` may set any Client bit on a Client user, and one holding `users.platform_user.set_permissions` is limited to their own platform bits. A Client user can never reach a platform bit.
-  - **Machine Clients and Customers** keep their fixed access (DR-66, DR-38) and are not in the bitmask system.
+  - **No escalation.** Inside one space, a user may set on another user only bits that the setter holds (`403 grant_exceeds_own_permissions`), and never edits their own mask (`403 cannot_edit_self`). Across spaces the platform is the root of trust: a platform user holding `users.client_user.set_permissions` may set any tenant bit on a tenant_user, and one holding `users.platform_user.set_permissions` is limited to their own platform bits. A tenant_user can never reach a platform bit.
+  - **Machine tenants and tenant_customers** keep their fixed access (DR-66, DR-38) and are not in the bitmask system.
   - **Audit.** Every change of a mask writes `audit.log` with before and after as lists of codes (DR-83).
 - **Consequences:** Adding a capability is one enum line, one lock-file line and one test row. A search by bit answers "who can approve refunds". Dual control (DR-69) is independent: approver ≠ requester holds even when both hold the bit.
 - **Write to:** DOC-26, DOC-41, DOC-53, DOC-83, ADR-0026.
 
 ### DR-107 · How are users stored and identified, and how can the same email exist in several spaces?
-- **Problem:** Requirement C: platform users and Client users are separate populations with separate use cases, and the same email may belong to a platform user and to users of several Clients. One table with a nullable `client_id` and a globally unique email cannot give that. Keycloak by default also allows one account per email per realm.
-- **Options:** (1) One realm, unique emails: the same person cannot work for two Clients. (2) One realm with duplicate emails allowed and a synthetic username `<email>@<client>`: works, but sign-in by email is lost and the login page cannot be per space. (3) One realm per space: the same email is a different account in each realm, with a login page per space.
+- **Problem:** Requirement C: platform users and tenant_users are separate populations with separate use cases, and the same email may belong to a platform user and to users of several tenants. One table with a nullable `client_id` and a globally unique email cannot give that. Keycloak by default also allows one account per email per realm.
+- **Options:** (1) One realm, unique emails: the same person cannot work for two tenants. (2) One realm with duplicate emails allowed and a synthetic username `<email>@<client>`: works, but sign-in by email is lost and the login page cannot be per space. (3) One realm per space: the same email is a different account in each realm, with a login page per space.
 - **Decision (proposed):** Option 3, with separate tables.
-  - **Realms.** `billing-platform` for platform users, `billing-client-<code>` for each Client, and the existing `billing` realm for Customers, machine Clients and `demo_operator` (DR-64). A Client's realm is created in the Client-creation saga (FL-25) by a service account `billing-realm-provisioner` that holds only realm-management rights. At most about 20 Clients (original SDD §2.1) gives at most 22 realms. Fallback if realms prove heavy in operation: option 2 with a new DR.
+  - **Realms.** `billing-platform` for platform users, `billing-client-<code>` for each tenant, and the existing `billing` realm for tenant_customers, tenant_systems and `demo_operator` (DR-64). A tenant's realm is created in the tenant-creation saga (FL-25) by a service account `billing-realm-provisioner` that holds only realm-management rights. At most about 20 tenants (original SDD §2.1) gives at most 22 realms. Fallback if realms prove heavy in operation: option 2 with a new DR.
   - **Tables** (Ops DB, no `tenant_id`, so outside the RLS rule of DR-63; two more rows in DOC-19's matrix):
     ```sql
     -- platform.platform_user
@@ -1610,46 +1614,46 @@ Vocabulary: a **user** is one person who signs in to operate the system, and eve
     created_by uuid, created_at timestamptz NOT NULL, ended_at timestamptz, ended_by uuid
     CREATE UNIQUE INDEX ON platform.client_user (client_id, lower(email)) WHERE status = 'ACTIVE';
     ```
-  - **Email is unique only inside one space and only among `ACTIVE` rows.** The same email may exist once in the platform and once in each Client; an `ENDED` user's email can be reused by a new user in the same space. Email is a sign-in and display attribute: authorization, audit and `managed_by` use the user `id`, never the email, so reuse can never transfer rights or history.
+  - **Email is unique only inside one space and only among `ACTIVE` rows.** The same email may exist once in the platform and once in each tenant; an `ENDED` user's email can be reused by a new user in the same space. Email is a sign-in and display attribute: authorization, audit and `managed_by` use the user `id`, never the email, so reuse can never transfer rights or history.
   - **Token to user.** Each realm has its own issuer. The gateway keeps an `issuer → space` map (platform realm; each `client_system.idp_realm`) and a JWKS cache per issuer (1 hour, last good keys kept, as DR-64). The user row is looked up by `idp_subject` in the table of the issuer's space. A token whose issuer is unknown, or whose `sub` has no `ACTIVE` row, gets `403`.
-  - **Claims.** Platform tokens carry `billing_space=platform`. Client tokens carry `billing_space=client` and `billing_client_id`, a hard-coded mapper in each Client realm, which must equal the `client_id` of the realm's issuer and of the user row. Any mismatch is `403`. Realm role `billing_user` only opens the door; no code reads a role for rights. `finance_admin` of DR-64 is removed.
-  - **Modes per Client user.** `mode_mask` holds up to six bits (DR-104 order) and means "the modes this person may work in". A setter may set only bits inside the **Client's currently active modes** and inside the setter's own effective modes (`422 mode_not_granted_to_client`; `403 grant_exceeds_own_permissions`). A platform user has no `mode_mask`; acting on a Client's catalog is limited by that Client's active modes alone (DR-105).
-  - **Effective modes** `effective_modes(U, client) = active_client_modes(client) AND U.mode_mask` for a Client user; for a platform user, `active_client_modes(client)`. When a Client's mode expires, `mode_mask` stays as set, so a re-grant restores each person's setting.
+  - **Claims.** Platform tokens carry `billing_space=platform`. tenant tokens carry `billing_space=client` and `billing_client_id`, a hard-coded mapper in each tenant realm, which must equal the `client_id` of the realm's issuer and of the user row. Any mismatch is `403`. Realm role `billing_user` only opens the door; no code reads a role for rights. `finance_admin` of DR-64 is removed.
+  - **Modes per tenant_user.** `mode_mask` holds up to six bits (DR-104 order) and means "the modes this person may work in". A setter may set only bits inside the **tenant's currently active modes** and inside the setter's own effective modes (`422 mode_not_granted_to_client`; `403 grant_exceeds_own_permissions`). A platform user has no `mode_mask`; acting on a tenant's catalog is limited by that tenant's active modes alone (DR-105).
+  - **Effective modes** `effective_modes(U, client) = active_client_modes(client) AND U.mode_mask` for a tenant_user; for a platform user, `active_client_modes(client)`. When a tenant's mode expires, `mode_mask` stays as set, so a re-grant restores each person's setting.
   - **Two independent gates** for a mode-bound action: the function bit says *what* the person may do; the effective mode says *in which pricing mode*. A user with one and not the other is refused.
-  - **Creating users.** A platform user holding `users.platform_user.create` creates platform users; one holding `users.client_user.create` creates users of any Client, including the first. A Client user holding `access.user.create` creates users of their own Client only. The Keycloak account is created in the right realm by the provisioner, with OTP: required for every platform user and for any Client user holding an `access.*` bit; no self-signup. The first platform user comes from a one-time `billing.role=bootstrap` command that sets every platform bit on a named `idp_subject` and refuses to run once any user holds `users.platform_user.set_permissions`; mini's realm import and seed job use it.
+  - **Creating users.** A platform user holding `users.platform_user.create` creates platform users; one holding `users.client_user.create` creates users of any tenant, including the first. A tenant_user holding `access.user.create` creates users of their own tenant only. The Keycloak account is created in the right realm by the provisioner, with OTP: required for every platform user and for any tenant_user holding an `access.*` bit; no self-signup. The first platform user comes from a one-time `billing.role=bootstrap` command that sets every platform bit on a named `idp_subject` and refuses to run once any user holds `users.platform_user.set_permissions`; mini's realm import and seed job use it.
   - **Reads may be cached 30 s; writes and revocation checks never are.** Every mutating call, and every check that decides a revocation, reads the row from the primary (DR-108).
   - There is no `role` column anywhere.
-- **Consequences:** A person who works for two Clients has two separate accounts with the same email, signing in at each Client's own page. The cost is one realm per Client and a provisioning saga step. The last holder of `access.user.set_permissions` in a Client can be deactivated; a platform user holding `users.client_user.set_permissions` repairs it.
+- **Consequences:** A person who works for two tenants has two separate accounts with the same email, signing in at each tenant's own page. The cost is one realm per tenant and a provisioning saga step. The last holder of `access.user.set_permissions` in a tenant can be deactivated; a platform user holding `users.client_user.set_permissions` repairs it.
 - **Write to:** DOC-15, DOC-19, DOC-26, DOC-41, DOC-51 (FL-25, FL-35), DOC-53, DOC-83, ADR-0023, ADR-0026.
 
 ### DR-108 · What does revoking a user do, and who owns the resources they made?
-- **Problem:** Requirement A: revoking a **Client** never deletes what it created (DR-105). Revoking a **user** can happen at once, because resources can always be given to another user. That needs a definition of "manages", of what a revoke leaves behind, and of how resources are found and handed over.
+- **Problem:** Requirement A: revoking a **tenant** never deletes what it created (DR-105). Revoking a **user** can happen at once, because resources can always be given to another user. That needs a definition of "manages", of what a revoke leaves behind, and of how resources are found and handed over.
 - **Decision (proposed):**
-  - **Owner and manager are different things.** Each resource belongs to its Client (`client_id`, never changes). A **manager** is the Client user answerable for it day to day: nullable `managed_by uuid` (a `client_user.id`) on `pricing.price_plan`, `platform.client_product` and `meter`. A price assignment follows its plan's manager. The creator becomes the manager when a Client user creates it; resources made by a platform user, the seed job or a machine Client have `managed_by = NULL`. The creator also appears in `audit.log`, which `managed_by` never overwrites.
-  - **Who may change a resource.** A Client user: the function bit, the effective mode when the action is extending, and (`managed_by = U.id` **or** `access.resource.manage_any`). A platform user: the `client_support` bit and the Client's active mode; no manager rule. Reading needs only the `read` bit.
-  - **Revoking a user:** `POST /v1/console/users/{id}/deactivate` (or `/v1/admin/client-users/{id}/deactivate`, `/v1/admin/platform-users/{id}/deactivate`) sets `status = ENDED`, `ended_at = now()`. It takes effect **on the next call**: every check reads the primary, and the access token (5 minutes) proves identity only. The row is kept for audit and never deleted. A Client user's deactivation may carry `reassign_to`, which moves every resource they manage in one transaction.
+  - **Owner and manager are different things.** Each resource belongs to its tenant (`client_id`, never changes). A **manager** is the tenant_user answerable for it day to day: nullable `managed_by uuid` (a `client_user.id`) on `pricing.price_plan`, `platform.client_product` and `meter`. A price assignment follows its plan's manager. The creator becomes the manager when a tenant_user creates it; resources made by a platform user, the seed job or a tenant_system have `managed_by = NULL`. The creator also appears in `audit.log`, which `managed_by` never overwrites.
+  - **Who may change a resource.** A tenant_user: the function bit, the effective mode when the action is extending, and (`managed_by = U.id` **or** `access.resource.manage_any`). A platform user: the `client_support` bit and the tenant's active mode; no manager rule. Reading needs only the `read` bit.
+  - **Revoking a user:** `POST /v1/console/users/{id}/deactivate` (or `/v1/admin/client-users/{id}/deactivate`, `/v1/admin/platform-users/{id}/deactivate`) sets `status = ENDED`, `ended_at = now()`. It takes effect **on the next call**: every check reads the primary, and the access token (5 minutes) proves identity only. The row is kept for audit and never deleted. A tenant_user's deactivation may carry `reassign_to`, which moves every resource they manage in one transaction.
   - **Narrowing** (`PUT …/permissions`, `PUT …/pricing-modes`) is equally immediate and changes no resource. A person who loses a bit or a mode keeps their `managed_by` links but cannot act through them.
-  - **Resources needing a manager** have `managed_by IS NULL`, or an `ENDED` manager, or a manager who no longer holds the `update` bit or the resource's mode. `GET /v1/console/resources?needs_manager=true` lists them; any Client user with `access.resource.manage_any` can edit them meanwhile, so nothing is ever stuck.
-  - **Reassigning:** `POST /v1/console/resources/reassign` with `{ "from": "<user>" | null, "resources": [ids] | "all", "to": "<user>" }`, needing `access.resource.reassign`; platform users use `POST /v1/admin/client-systems/{id}/resources/reassign` with `users.client_resource.reassign`. The target must be an `ACTIVE` user of the same Client, hold the `update` bit of each function, and have the mode in `effective_modes` for mode-bound resources, else `422 assignee_lacks_permission` naming the missing item. One audit row per call lists the ids.
+  - **Resources needing a manager** have `managed_by IS NULL`, or an `ENDED` manager, or a manager who no longer holds the `update` bit or the resource's mode. `GET /v1/console/resources?needs_manager=true` lists them; any tenant_user with `access.resource.manage_any` can edit them meanwhile, so nothing is ever stuck.
+  - **Reassigning:** `POST /v1/console/resources/reassign` with `{ "from": "<user>" | null, "resources": [ids] | "all", "to": "<user>" }`, needing `access.resource.reassign`; platform users use `POST /v1/admin/client-systems/{id}/resources/reassign` with `users.client_resource.reassign`. The target must be an `ACTIVE` user of the same tenant, hold the `update` bit of each function, and have the mode in `effective_modes` for mode-bound resources, else `422 assignee_lacks_permission` naming the missing item. One audit row per call lists the ids.
   - **Resources keep working throughout.** A plan with no active manager still rates, estimates and bills; only its editing waits for a manager. Revoking a user changes no price, plan version, subscription, reservation, charge or invoice.
-  - **What a Client-level expiry does to users:** nothing to their rows (DR-107). Their managed resources stay linked.
-- **Consequences:** The two revocations differ on purpose. A Client's mode is a commercial entitlement over an organization's footprint: it only stops new growth. A user is an identity: it is cut at once, and continuity of the resource is solved by handing it over.
+  - **What a tenant-level expiry does to users:** nothing to their rows (DR-107). Their managed resources stay linked.
+- **Consequences:** The two revocations differ on purpose. A tenant's mode is a commercial entitlement over an organization's footprint: it only stops new growth. A user is an identity: it is cut at once, and continuity of the resource is solved by handing it over.
 - **Write to:** DOC-15, DOC-26, DOC-27, DOC-51 (FL-36), DOC-53, DOC-83.
 
 ### DR-109 · What are the endpoints, and what changes in the endpoint × role matrix?
-- **Problem:** DR-66 and DR-87 know only Client, Customer and Finance Admin. The new capabilities need endpoints for grants, users, permissions, reassignment and the catalogs, and every `/v1/admin/*` and `/v1/console/*` endpoint needs a permission code. Platform and Client use cases must stay separate (Requirement C).
+- **Problem:** DR-66 and DR-87 know only tenant, tenant_customer and Finance Admin. The new capabilities need endpoints for grants, users, permissions, reassignment and the catalogs, and every `/v1/admin/*` and `/v1/console/*` endpoint needs a permission code. Platform and tenant use cases must stay separate (Requirement C).
 - **Decision (proposed):**
-  - **Two endpoint families, one per space.** `/v1/admin/*` is for platform users only and `/v1/console/*` for Client users only. The door is the token's space (DR-107): a platform token on `/v1/console/*`, or a Client token on `/v1/admin/*`, is `403 wrong_space`. A platform user who works on one Client's catalog or people uses `/v1/admin/client-systems/{id}/…`, never `/v1/console/*`. Matrix (P = platform user, K = Client user; C and U as in DR-66):
+  - **Two endpoint families, one per space.** `/v1/admin/*` is for platform users only and `/v1/console/*` for tenant_users only. The door is the token's space (DR-107): a platform token on `/v1/console/*`, or a tenant token on `/v1/admin/*`, is `403 wrong_space`. A platform user who works on one tenant's catalog or people uses `/v1/admin/client-systems/{id}/…`, never `/v1/console/*`. Matrix (P = platform user, K = tenant_user; C and U as in DR-66):
 
     | Endpoints | C | U | P | K |
     | --- | --- | --- | --- | --- |
     | `/v1/admin/*` | no | no | with the bit | no |
-    | `/v1/console/*` | no | no | no | with the bit, own Client only |
+    | `/v1/console/*` | no | no | no | with the bit, own tenant only |
     | `/v1/me` | no | no | read | read |
-    | `/v1/permissions/catalog` | no | no | platform catalog | Client catalog |
+    | `/v1/permissions/catalog` | no | no | platform catalog | tenant catalog |
     | Everything else | unchanged | unchanged | unchanged | **no** |
 
-    A Client user has no access to accounts, wallets, charges, invoices or tenant data: console endpoints work on the Client's catalog, people and profile only, so a Client user needs no grant to a tenant and no RLS context.
+    A tenant_user has no access to accounts, wallets, charges, invoices or tenant data: console endpoints work on the tenant's catalog, people and profile only, so a tenant_user needs no grant to a tenant and no RLS context.
   - **New endpoints** (added to DR-87):
 
     | Space | Endpoint | Permission |
@@ -1660,63 +1664,109 @@ Vocabulary: a **user** is one person who signs in to operate the system, and eve
     | Platform | `GET/POST /v1/admin/platform-users`, `GET/PUT …/permissions`, `POST …/deactivate` | `users.platform_user.*` |
     | Platform | `GET/POST /v1/admin/client-users` (filter `client_id`), `GET /v1/admin/client-users/{id}`, `PUT …/permissions`, `PUT …/pricing-modes`, `POST …/deactivate` | `users.client_user.*` |
     | Platform | `POST /v1/admin/client-systems/{id}/resources/reassign` | `users.client_resource.reassign` |
-    | Platform | `/v1/admin/client-systems/{id}/price-plans…`, `price-assignments…`, `products…`, `meters…` (the `/v1/admin/price-plans` of DR-87 with the Client in the path) | `client_support.*` |
-    | Client | `GET /v1/console/profile` (own Client, modes with expiry) | `profile.client.read` |
-    | Client | `GET/POST /v1/console/users`, `GET /v1/console/users/{id}`, `PUT …/permissions`, `PUT …/pricing-modes`, `POST …/deactivate` | `access.user.*` |
-    | Client | `GET /v1/console/resources?managed_by&needs_manager&type`, `POST /v1/console/resources/reassign` | `access.resource.*` |
-    | Client | `/v1/console/price-plans…`, `price-assignments…` | `pricing.*` |
-    | Client | `/v1/console/products…`, `meters…` | `catalog.*` |
+    | Platform | `/v1/admin/client-systems/{id}/price-plans…`, `price-assignments…`, `products…`, `meters…` (the `/v1/admin/price-plans` of DR-87 with the tenant in the path) | `client_support.*` |
+    | tenant | `GET /v1/console/profile` (own tenant, modes with expiry) | `profile.client.read` |
+    | tenant | `GET/POST /v1/console/users`, `GET /v1/console/users/{id}`, `PUT …/permissions`, `PUT …/pricing-modes`, `POST …/deactivate` | `access.user.*` |
+    | tenant | `GET /v1/console/resources?managed_by&needs_manager&type`, `POST /v1/console/resources/reassign` | `access.resource.*` |
+    | tenant | `/v1/console/price-plans…`, `price-assignments…` | `pricing.*` |
+    | tenant | `/v1/console/products…`, `meters…` | `catalog.*` |
     | Both | `GET /v1/me` (own permissions as codes, effective modes, status, space) | any user |
     | Both | `GET /v1/permissions/catalog` (groups, functions, actions, bits) of the caller's catalog | any user |
 
-    The two families call **one handler** for plans, assignments, products and meters; only the actor, the Client filter and the permission code differ, so there is no second pricing code path. The two families share code and nothing else: separate paths, tokens, permissions, tables and dashboards.
+    The two families call **one handler** for plans, assignments, products and meters; only the actor, the tenant filter and the permission code differ, so there is no second pricing code path. The two families share code and nothing else: separate paths, tokens, permissions, tables and dashboards.
   - **New error codes:** `403 wrong_space`, `403 permission_denied`, `403 pricing_mode_not_granted`, `403 not_resource_manager`, `403 grant_exceeds_own_permissions`, `403 cannot_edit_self`, `422 pricing_mode_mismatch`, `422 mode_not_granted_to_client`, `422 assignee_lacks_permission`, `409 email_in_use` (same email already `ACTIVE` in this space).
-  - **Authorization test matrix.** One generated test per (endpoint × permission bit): bit set passes, bit cleared returns `403 permission_denied`. A second generated set per extending action × six modes × (Client mode active / expired) × (user mode set / cleared). A third: every space-crossing combination (platform token on a Client endpoint and the reverse, Client 1's token on Client 2's data) is refused. A build test requires that every `/v1/admin/*` and `/v1/console/*` operation in `api/openapi` carries an `x-permission` code that exists in the matching catalog.
-  - **Rate limit.** Console calls are keyed by `billing_client_id` at the gateway, with the Customer limit of DR-67; admin calls by `sub`.
+  - **Authorization test matrix.** One generated test per (endpoint × permission bit): bit set passes, bit cleared returns `403 permission_denied`. A second generated set per extending action × six modes × (tenant mode active / expired) × (user mode set / cleared). A third: every space-crossing combination (platform token on a tenant endpoint and the reverse, tenant 1's token on tenant 2's data) is refused. A build test requires that every `/v1/admin/*` and `/v1/console/*` operation in `api/openapi` carries an `x-permission` code that exists in the matching catalog.
+  - **Rate limit.** Console calls are keyed by `billing_client_id` at the gateway, with the tenant_customer limit of DR-67; admin calls by `sub`.
 - **Write to:** DOC-41, DOC-52, DOC-53, DOC-70, DOC-83.
 
-### DR-110 · How are the platform and each Client addressed: by host, by path, or both?
-- **Problem:** Requirement C: a Client's dashboard lives at `client1.<domain>` or `<domain>/client1`, supporting both if possible, and the platform at `platform.<domain>` or `<domain>/platform`. The original SDD has one portal and no addressing by space.
+### DR-110 · How are the platform and each tenant addressed: by host, by path, or both?
+- **Problem:** Requirement C: a tenant's dashboard lives at `client1.<domain>` or `<domain>/client1`, supporting both if possible, and the platform at `platform.<domain>` or `<domain>/platform`. The original SDD has one portal and no addressing by space.
 - **Decision (proposed):**
   - **Spaces and their addresses** (`{base}` is the configured domain):
 
     | Space | By host | By path |
     | --- | --- | --- |
     | Platform | `platform.{base}` | `{base}/platform` |
-    | Client `code` | `{code}.{base}` | `{base}/{code}` |
-    | Customer portal (proposed, for the Owner to confirm) | `portal.{base}` | `{base}/portal` |
+    | tenant `code` | `{code}.{base}` | `{base}/{code}` |
+    | tenant-customer portal (proposed, for the Owner to confirm) | `portal.{base}` | `{base}/portal` |
 
   - **Both forms are supported, chosen by configuration:** `billing.routing.mode` = `HOST`, `PATH` or `BOTH`, default `BOTH`. Recommended: `HOST` in staging and production, with `PATH` kept as a fallback when a wildcard DNS or certificate is not available, and `PATH` on mini (a single `localhost` with no wildcard).
   - **One build, both modes.** Assets use relative URLs, and the nginx entrypoint renders `<base href>` and `/config.js` per request from the resolved space, so the router receives its base path at run time (same image everywhere, as DR-89).
-  - **URL never grants access.** The API is not per space: it stays at `{api-host}/v1/…`. The caller's space comes from the token's issuer only (DR-107). The URL decides which dashboard bundle is served and which realm's login page opens. A token for Client 2 used on Client 1's page is refused at login and signs the user out; the API treats it as Client 2's token whatever the page says.
-  - **Client `code`.** The existing natural key of `client_system`, now also a URL segment and a realm name. Regex `^[a-z][a-z0-9-]{1,28}[a-z0-9]$`, unique, **immutable**. Reserved and refused: `platform`, `portal`, `api`, `auth`, `admin`, `console`, `www`, `static`, `assets`, `docs`, `status`, `login`, `app`, `billing`. An unknown code returns the same `404` page as an unknown route.
+  - **URL never grants access.** The API is not per space: it stays at `{api-host}/v1/…`. The caller's space comes from the token's issuer only (DR-107). The URL decides which dashboard bundle is served and which realm's login page opens. A token for tenant 2 used on tenant 1's page is refused at login and signs the user out; the API treats it as tenant 2's token whatever the page says.
+  - **tenant `code`.** The existing natural key of `client_system`, now also a URL segment and a realm name. Regex `^[a-z][a-z0-9-]{1,28}[a-z0-9]$`, unique, **immutable**. Reserved and refused: `platform`, `portal`, `api`, `auth`, `admin`, `console`, `www`, `static`, `assets`, `docs`, `status`, `login`, `app`, `billing`. An unknown code returns the same `404` page as an unknown route.
   - **Ingress.** Host rules `platform.{base}`, `portal.{base}`, `*.{base}`; path rules `/platform`, `/portal`, `/{code}`; one wildcard certificate by cert-manager DNS-01 for staging and production.
   - **OIDC.** The dashboard OIDC client in each realm registers the redirect URIs of every enabled form (`https://{code}.{base}/*`, `https://{base}/{code}/*`); the provisioning saga sets them and a job re-registers them when `billing.routing.mode` changes. Silent refresh and `prompt=none` follow DR-89.
   - **CORS** comes from the same table: the gateway allows the exact origin of each enabled form of each space and nothing else.
-  - **Isolation caveat.** Path mode serves every space from one browser origin, so a Client's dashboard and the platform dashboard share storage and same-origin scripts. Tokens are held in memory only (DR-89) and all scripts are ours, so the risk is accepted for `PATH`, and it is why `HOST` is recommended for production. A CSP forbidding inline scripts applies in both.
-- **Consequences:** Adding a Client adds a realm and an OIDC client, and no DNS record under wildcard DNS. A Client cannot be renamed without a new code and a new realm.
+  - **Isolation caveat.** Path mode serves every space from one browser origin, so a tenant's dashboard and the platform dashboard share storage and same-origin scripts. Tokens are held in memory only (DR-89) and all scripts are ours, so the risk is accepted for `PATH`, and it is why `HOST` is recommended for production. A CSP forbidding inline scripts applies in both.
+- **Consequences:** Adding a tenant adds a realm and an OIDC client, and no DNS record under wildcard DNS. A tenant cannot be renamed without a new code and a new realm.
 - **Write to:** DOC-38, DOC-43, DOC-56, DOC-72, DOC-73, DOC-74, DOC-75, DOC-84.
 
-### DR-111 · How are the platform, Client and Customer front-ends separated?
-- **Problem:** Requirement C: at least the platform dashboard and the Client dashboard must be clearly separate. DR-89 and DR-90 describe one portal with role routing, and Client users have no screens.
+### DR-111 · How are the platform, tenant and tenant_customer front-ends separated?
+- **Problem:** Requirement C: at least the platform dashboard and the tenant dashboard must be clearly separate. DR-89 and DR-90 describe one portal with role routing, and tenant_users have no screens.
 - **Decision (proposed):**
-  - **Three front-ends, one repository.** `apps/platform-dashboard`, `apps/client-dashboard`, `apps/customer-portal`, with shared packages `packages/ui` (design system, DR-89), `packages/api-client` (generated, DR-10), `packages/auth` (the `oidc-client-ts` wrapper) and `packages/pricing-editor` (the plan editor used by both dashboards). Code is shared; use cases, navigation, URL maps and bundles are not.
-  - **Separate builds and separate sign-in.** Each app has its own Vite entry and bundle, its own OIDC client and, for the Client dashboard, its own realm per Client (DR-107). One `portal` image contains the three builds, and nginx serves one by the resolved space (DR-110).
-  - **Isolation checked in CI.** A dependency rule fails the build if `client-dashboard` or `customer-portal` imports a platform-only module, or if any of their bundles contains a `/v1/admin` path; and the same for the reverse. The generated client is tree-shaken per app from `x-audience` tags.
+  - **Three front-ends, one repository.** `apps/platform-dashboard`, `apps/tenant-dashboard`, `apps/tenant-customer-portal`, with shared packages `packages/ui` (design system, DR-89), `packages/api-client` (generated, DR-10), `packages/auth` (the `oidc-client-ts` wrapper) and `packages/pricing-editor` (the plan editor used by both dashboards). Code is shared; use cases, navigation, URL maps and bundles are not.
+  - **Separate builds and separate sign-in.** Each app has its own Vite entry and bundle, its own OIDC client and, for the tenant dashboard, its own realm per tenant (DR-107). One `portal` image contains the three builds, and nginx serves one by the resolved space (DR-110).
+  - **Isolation checked in CI.** A dependency rule fails the build if `tenant-dashboard` or `tenant-customer-portal` imports a platform-only module, or if any of their bundles contains a `/v1/admin` path; and the same for the reverse. The generated client is tree-shaken per app from `x-audience` tags.
   - **Screens.**
 
     | Front-end | Screens |
     | --- | --- |
-    | Platform dashboard | Finance overview, Price plans (any Client's, through `client_support`), Refund approvals, Reconciliation, Tenants and limits (with quarantine), Client Systems and grants (now with pricing modes, Client users and realm), Platform users and permissions (added), Webhook deliveries |
-    | Client dashboard (added) | Overview (own modes with expiry, user count, resources needing a manager), Users and permissions, Price plans, Products and meters, Resources and reassignment |
-    | Customer portal | Account overview, Top up with Payment result, Transactions, Invoices, Refunds |
+    | Platform dashboard | Finance overview, Price plans (any tenant's, through `client_support`), Refund approvals, Reconciliation, Tenants and limits (with quarantine), tenant_systems and grants (now with pricing modes, tenant_users and realm), Platform users and permissions (added), Webhook deliveries |
+    | tenant dashboard (added) | Overview (own modes with expiry, user count, resources needing a manager), Users and permissions, Price plans, Products and meters, Resources and reassignment |
+    | tenant-customer portal | Account overview, Top up with Payment result, Transactions, Invoices, Refunds |
 
-    This is 18 screens, up from 12 in DR-90. The Client dashboard shows no tenant, account or money data.
+    This is 18 screens, up from 12 in DR-90. The tenant dashboard shows no tenant, account or money data.
   - **Navigation comes from `GET /v1/me`.** Menu items and buttons are hidden when the permission bit is missing, as a courtesy only; the server decides. A plan editor on an expired mode shows a banner and disables the extending actions (DR-105), and the server still refuses them.
-  - **Look.** Each front-end shows its space in the header ("Platform", the Client's display name, or the customer's tenant), so a user working in two spaces cannot confuse them.
+  - **Look.** Each front-end shows its space in the header ("Platform", the tenant's display name, or the customer's tenant), so a user working in two spaces cannot confuse them.
   - **Language:** English only at first, with all strings through i18next (DR-90).
-- **Consequences:** Client users get a real UI in this phase, which adds five screens to P8. The cut fallback (`make admin-cli`) covers platform screens only; the Client dashboard is cut last among the admin screens since Clients have no other way to manage their users.
+- **Consequences:** tenant_users get a real UI in this phase, which adds five screens to P8. The cut fallback (`make admin-cli`) covers platform screens only; the tenant dashboard is cut last among the admin screens since tenants have no other way to manage their users.
 - **Write to:** DOC-11, DOC-56, DOC-57, DOC-59, DOC-84…90.
+
+### DR-112 · What is the unified tenant model (B2B2C)?
+- **Problem:** The original SDD names the business a "Client System" and the paying organization a "Customer (Tenant)". "Tenant" names the payer, not the business, and "Client" and "Client System" are used for two different things, so the roles are hard to follow.
+- **Decision (proposed):** One hierarchy, with tenants as the isolation unit.
+
+  | Term | Who | Scope | Holds wallet |
+  | --- | --- | --- | --- |
+  | `platform_user` | Operator of the billing app | Global, cross-tenant | No |
+  | `tenant` | A business (e.g. a GPU-rental company). **The isolation unit.** | One tenant | No |
+  | `tenant_user` | Staff of the business | Inside its tenant | No |
+  | `tenant_customer` | The business's customer (the renter). **Holds billing account + wallet.** | Inside its tenant | Yes |
+  | `tenant_system` | The business's service / machine integration | Inside its tenant | No |
+  | System (jobs) | Internal automatic jobs | Internal | No |
+
+  Locked sub-decisions: (1) the wallet belongs to `tenant_customer`; the tenant is the merchant. (2) One `tenant_customer` identity per tenant; email is unique per tenant among `ACTIVE` rows. (3) Isolation is by the business `tenant_id`; `customer_id` narrows access to one customer inside a tenant.
+
+  Terminology mapping (old → new):
+
+  | Old | New |
+  | --- | --- |
+  | Client (organization / space) | `tenant` |
+  | Client System (service row, `idp_client_id`, products, meters) | `tenant_system` |
+  | Client user | `tenant_user` |
+  | Customer (Tenant) / Customer | `tenant_customer` |
+  | `client_id` (provider) | `tenant_id` |
+  | `tenant_id` (payer) | `customer_id` |
+  | `account.tenant_id` (payer) | `account.customer_id` + new `account.tenant_id` |
+  | `platform.client_system` | `platform.tenant` |
+  | `platform.tenant` (payer org) | `platform.customer` |
+  | `platform.client_user` | `platform.tenant_user` |
+  | (new) | `platform.tenant_customer` |
+  | `platform.client_grant` | `platform.customer_enrollment` (one active per customer) |
+  | `tenant_billing_profile` | `customer_billing_profile` |
+  | event envelope `client_id` | `tenant_id` (envelope: `tenant_id`, `customer_id`, `account_id`) |
+  | `Billing-Tenant-Id` (named the payer) | `Billing-Tenant-Id` (names the business) |
+  | realm `billing-client-<code>` | `billing-tenant-<code>` |
+  | realm `billing` (customers) | `billing-customer-<code>` (one per tenant) |
+  | `ClientPermission` | `TenantPermission` |
+
+  **Client vs Client System.** The old docs use "Client System" for two nested things: the provider organization (space, realm, users) maps to `tenant`; the provider's service row (`client_system`, machine credentials, products, meters) maps to `tenant_system`.
+
+  **The Demo is a whole tenant.** SDD §11.7: the Demo "plays a small rental company named `demo-rental` … as any Client does", and "to Billing it is a row in `client_system` with a grant". So `demo-rental` is a `tenant`, its registration is a `tenant_system`, and the seeded prepaid/postpaid accounts are `tenant_customer`s; it is not merely a `tenant_system`.
+- **Consequences:** RLS keys on the business `tenant_id`; every previously payer-scoped table also carries the business `tenant_id`; `billing_account`'s natural key is `(tenant_id, customer_id, code)`; `client_grant` is replaced by `customer_enrollment`; the three front-ends are the platform dashboard, tenant dashboard and tenant-customer portal. Until the prose below is migrated, older entries that say "Client", "Client System", "Customer" or "Tenant" are read through this table.
+- **Open points:** grant semantics assume a customer belongs to exactly one tenant; the tenant paying the platform for its own subscription is out of scope; customer-portal hosting is decided in DOC-84; the event-contract change from `client_id` to `tenant_id` must be versioned once live.
+- **Write to:** DOC-26, DOC-83, DOC-06.
+
 
 ---
 

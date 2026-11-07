@@ -108,7 +108,7 @@ td code { font-family: var(--mono); font-size: 13px; }
   <header>
     <div class="eyebrow">C4 model · Context → Container → Component → Deployment</div>
     <h1>Generic Billing System</h1>
-    <p class="lede">Billing prices usage and runs the financial workflow for many kinds of resource-rental services. Client Systems keep full control of Resource, Order and Execution; Billing only publishes status through APIs, events and webhooks. Growing to ten times the target load takes added capacity, with no change to the API or event contract.</p>
+    <p class="lede">Billing prices usage and runs the financial workflow for many kinds of resource-rental services. Tenant Systems keep full control of Resource, Order and Execution; Billing only publishes status through APIs, events and webhooks. Growing to ten times the target load takes added capacity, with no change to the API or event contract.</p>
     <nav aria-label="Diagrams">
       <a href="#c1">C1 Context</a>
       <a href="#c2">C2 Container</a>
@@ -130,7 +130,7 @@ td code { font-family: var(--mono); font-size: 13px; }
     <div class="sec-head"><span class="level">C1</span><h2>System Context</h2></div>
     <figure>
       <div class="fig">
-        <svg viewBox="0 0 1160 500" role="img" aria-label="C1: Billing receives usage and reservations from Client Systems, returns status via webhooks, and integrates with a Payment Gateway, Identity Provider and ERP">
+        <svg viewBox="0 0 1160 500" role="img" aria-label="C1: Billing receives usage and reservations from Tenant Systems, returns status via webhooks, and integrates with a Payment Gateway, Identity Provider and ERP">
           <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs>
 
           <!-- edges -->
@@ -160,7 +160,7 @@ td code { font-family: var(--mono); font-size: 13px; }
 
           <!-- people -->
           <rect class="n-person" x="32" y="40" width="240" height="90" rx="22"/>
-          <text class="t-name" x="152" y="66" text-anchor="middle">Customer (Tenant)</text>
+          <text class="t-name" x="152" y="66" text-anchor="middle">Tenant Customer</text>
           <text class="t-tag" x="152" y="83" text-anchor="middle">[Person]</text>
           <text class="t-body" x="152" y="102" text-anchor="middle">Tops up, views balance,</text>
           <text class="t-body" x="152" y="118" text-anchor="middle">invoices, requests refunds</text>
@@ -171,11 +171,11 @@ td code { font-family: var(--mono); font-size: 13px; }
           <text class="t-body" x="690" y="102" text-anchor="middle">Price plans, reconciliation,</text>
           <text class="t-body" x="690" y="118" text-anchor="middle">refund approval</text>
 
-          <!-- client systems (stacked = many) -->
+          <!-- tenant systems (stacked = many) -->
           <rect class="n-ext" x="44" y="190" width="240" height="272" rx="8"/>
           <rect class="n-ext" x="38" y="195" width="240" height="272" rx="8"/>
           <rect class="n-ext" x="32" y="200" width="240" height="272" rx="8"/>
-          <text class="t-name" x="152" y="232" text-anchor="middle">Client Systems</text>
+          <text class="t-name" x="152" y="232" text-anchor="middle">Tenant Systems</text>
           <text class="t-tag" x="152" y="250" text-anchor="middle">[External System, N systems]</text>
           <text class="t-body" x="152" y="290" text-anchor="middle">e.g. GPU compute, VM, storage</text>
           <text class="t-body" x="152" y="336" text-anchor="middle">Own Resource, Order,</text>
@@ -194,7 +194,7 @@ td code { font-family: var(--mono); font-size: 13px; }
           <text class="t-body" x="592" y="366" text-anchor="middle">Status via API, Event, Webhook</text>
           <line class="sep" x1="456" y1="398" x2="728" y2="398"/>
           <text class="t-strong" x="592" y="428" text-anchor="middle">Never acts on</text>
-          <text class="t-strong" x="592" y="446" text-anchor="middle">Client resources</text>
+          <text class="t-strong" x="592" y="446" text-anchor="middle">Tenant-system resources</text>
 
           <!-- external right -->
           <rect class="n-ext" x="900" y="200" width="228" height="80" rx="8"/>
@@ -213,7 +213,7 @@ td code { font-family: var(--mono); font-size: 13px; }
           <text class="t-body" x="1014" y="456" text-anchor="middle">General ledger, reporting</text>
         </svg>
       </div>
-      <figcaption>The main integration runs both ways with Client Systems: clients send estimates, reservations, usage and commits; Billing returns descriptive status events such as <code>payment.failed</code>, <code>balance.insufficient</code> and <code>reservation.expired</code>. Whether to suspend or renew a resource is the client’s decision.</figcaption>
+      <figcaption>The main integration runs both ways with Tenant Systems: tenant systems send estimates, reservations, usage and commits; Billing returns descriptive status events such as <code>payment.failed</code>, <code>balance.insufficient</code> and <code>reservation.expired</code>. Whether to suspend or renew a resource is the tenant system’s decision.</figcaption>
     </figure>
   </section>
 
@@ -232,7 +232,7 @@ td code { font-family: var(--mono); font-size: 13px; }
 
           <!-- external top -->
           <rect class="n-ext" x="72" y="24" width="496" height="80" rx="8"/>
-          <text class="t-name" x="320" y="52" text-anchor="middle">Client Systems</text>
+          <text class="t-name" x="320" y="52" text-anchor="middle">Tenant Systems</text>
           <text class="t-tag" x="320" y="69" text-anchor="middle">[External System]</text>
           <text class="t-body" x="320" y="89" text-anchor="middle">Owns Resource / Order / Execution, receives webhooks</text>
 
@@ -308,7 +308,7 @@ td code { font-family: var(--mono); font-size: 13px; }
           <text class="t-edge" x="1008" y="846">consume</text>
           <text class="t-edge" x="220" y="992">deliveries, attempts</text>
           <text class="t-edge" x="1008" y="1140">journals, invoices</text>
-          <text class="t-edge" x="33" y="520" text-anchor="middle" transform="rotate(-90 33 520)">HMAC-signed webhook, retry → Client Systems</text>
+          <text class="t-edge" x="33" y="520" text-anchor="middle" transform="rotate(-90 33 520)">HMAC-signed webhook, retry → Tenant Systems</text>
 
           <!-- row 1 -->
           <rect class="n-int" x="72" y="192" width="210" height="80" rx="8"/>
@@ -439,7 +439,7 @@ td code { font-family: var(--mono); font-size: 13px; }
           <rect class="n-ext" x="72" y="24" width="240" height="80" rx="8"/>
           <text class="t-name" x="192" y="50" text-anchor="middle">API Gateway</text>
           <text class="t-tag" x="192" y="67" text-anchor="middle">[Container]</text>
-          <text class="t-body" x="192" y="87" text-anchor="middle">Client, Portal</text>
+          <text class="t-body" x="192" y="87" text-anchor="middle">Tenant system, Portal</text>
           <rect class="n-ext" x="680" y="24" width="240" height="80" rx="8"/>
           <text class="t-name" x="800" y="50" text-anchor="middle">Pricing Engine</text>
           <text class="t-tag" x="800" y="67" text-anchor="middle">[Container]</text>
@@ -586,7 +586,7 @@ td code { font-family: var(--mono); font-size: 13px; }
           <text class="t-body" x="182" y="87" text-anchor="middle">Domain events</text>
 
           <rect class="n-ext" x="900" y="24" width="220" height="80" rx="8"/>
-          <text class="t-name" x="1010" y="50" text-anchor="middle">Client Systems</text>
+          <text class="t-name" x="1010" y="50" text-anchor="middle">Tenant Systems</text>
           <text class="t-tag" x="1010" y="67" text-anchor="middle">[External System]</text>
           <text class="t-body" x="1010" y="87" text-anchor="middle">Webhook endpoint</text>
 
@@ -640,14 +640,14 @@ td code { font-family: var(--mono); font-size: 13px; }
           <text class="t-tag" x="1010" y="234" text-anchor="middle">[Component · delivery role]</text>
           <text class="t-body" x="1010" y="254" text-anchor="middle">POST to endpoint, timeout;</text>
           <text class="t-body" x="1010" y="270" text-anchor="middle">only 2xx counts as success;</text>
-          <text class="t-body" x="1010" y="286" text-anchor="middle">Client dedupes by event id</text>
+          <text class="t-body" x="1010" y="286" text-anchor="middle">tenant system dedupes by event id</text>
 
           <!-- r2 -->
           <rect class="n-int" x="72" y="360" width="220" height="104" rx="8"/>
           <text class="t-name" x="182" y="385" text-anchor="middle">Subscription Registry</text>
           <text class="t-tag" x="182" y="402" text-anchor="middle">[Component]</text>
           <text class="t-body" x="182" y="422" text-anchor="middle">Endpoints, event types,</text>
-          <text class="t-body" x="182" y="438" text-anchor="middle">per-client secrets,</text>
+          <text class="t-body" x="182" y="438" text-anchor="middle">per-tenant-system secrets,</text>
           <text class="t-body" x="182" y="454" text-anchor="middle">secret rotation</text>
 
           <rect class="n-focus" x="624" y="360" width="496" height="160" rx="8"/>
@@ -685,7 +685,7 @@ td code { font-family: var(--mono); font-size: 13px; }
           <text class="t-body" x="596" y="672" text-anchor="middle">subscriptions · secrets (encrypted) · deliveries · attempts · event_log · outbox</text>
         </svg>
       </div>
-      <figcaption>Each event is persisted as a delivery before the offset is committed, so nothing is lost if a worker stops mid-flight. Event Subscriber and Delivery Worker run as separate process roles, so they scale independently, and Delivery DB is the first store to move to its own cluster. Clients verify the signature, reject stale timestamps to prevent replay, and dedupe by <code>id</code> because Billing delivers at least once.</figcaption>
+      <figcaption>Each event is persisted as a delivery before the offset is committed, so nothing is lost if a worker stops mid-flight. Event Subscriber and Delivery Worker run as separate process roles, so they scale independently, and Delivery DB is the first store to move to its own cluster. tenant systems verify the signature, reject stale timestamps to prevent replay, and dedupe by <code>id</code> because Billing delivers at least once.</figcaption>
     </figure>
   </section>
 <!-- ===================== Deployment ===================== -->
@@ -701,7 +701,7 @@ td code { font-family: var(--mono); font-size: 13px; }
           <text class="t-tag" x="240" y="150">[3+ zones]</text>
 
           <rect class="n-ext" x="72" y="24" width="280" height="80" rx="8"/>
-          <text class="t-name" x="212" y="52" text-anchor="middle">Client Systems, browsers</text>
+          <text class="t-name" x="212" y="52" text-anchor="middle">Tenant Systems, browsers</text>
           <text class="t-tag" x="212" y="69" text-anchor="middle">[External]</text>
           <text class="t-body" x="212" y="89" text-anchor="middle">API and Portal traffic</text>
 

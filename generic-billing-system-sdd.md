@@ -2,7 +2,9 @@
 
 Nov 6, 2026 · @ninggiangboy
 
-Generic Billing System is an independent financial core for services that rent out resources. It prices usage under six pricing modes, holds budget before a Client System enqueues work, settles actual cost, and manages wallets, a double-entry ledger, invoices, payments and refunds, for both prepaid and postpaid accounts. Its top requirement is that money is never created, lost or charged twice, even under retries, process crashes and out-of-order events, and it only ever publishes facts: starting, renewing, throttling or stopping a resource stays entirely with the Client System. This phase delivers the core, its API, event and webhook integration, and a web portal on a strictly modular Java 25 and Spring Boot 4 codebase running on Kubernetes, plus a Demo Client System that exercises every pricing mode on both account modes, end to end, in development and staging. Growing to ten times the target load takes added capacity, not a contract change; tax engines, e-invoicing and multi-currency come later (section 2.3).
+> **Terminology (2026-11-07).** Tenancy terms follow **DR-112** in the decision register (*Unified tenant model, B2B2C*). The **tenant** is the business and the isolation unit; the **tenant_user** is its staff; the **tenant_customer** is its customer and holds the wallet; the **tenant_system** is the tenant's service integration; the **platform_user** operates the app. Where older prose below still uses the superseded words — the provider as "Client" or "Client System", the payer as "Customer" or "Tenant" — read them through the mapping in DR-112. This note is authoritative until the prose is fully migrated.
+
+Generic Billing System is an independent financial core for services that rent out resources. It prices usage under six pricing modes, holds budget before a tenant_system enqueues work, settles actual cost, and manages wallets, a double-entry ledger, invoices, payments and refunds, for both prepaid and postpaid accounts. Its top requirement is that money is never created, lost or charged twice, even under retries, process crashes and out-of-order events, and it only ever publishes facts: starting, renewing, throttling or stopping a resource stays entirely with the tenant_system. This phase delivers the core, its API, event and webhook integration, and a web portal on a strictly modular Java 25 and Spring Boot 4 codebase running on Kubernetes, plus a Demo tenant that exercises every pricing mode on both account modes, end to end, in development and staging. Growing to ten times the target load takes added capacity, not a contract change; tax engines, e-invoicing and multi-currency come later (section 2.3).
 
 ## 1. Introduction
 
@@ -23,14 +25,14 @@ The problem is hard because of the money itself. A charge is not a row that can 
 ### 1.3 Vision
 
 1. **A correct financial core.** One ledger where every balance can be explained line by line, and money cannot be created, lost or charged twice. This phase delivers it, and it is what the other layers rest on.
-2. **One integration for every service.** A Client System of any kind integrates through one API, event and webhook contract: it asks for an estimate, holds a budget, reports actual usage and receives facts. This phase delivers it, for six pricing modes, and a Demo Client System shows it working with nothing but that contract (section 11.7).
+2. **One integration for every service.** A tenant_system of any kind integrates through one API, event and webhook contract: it asks for an estimate, holds a budget, reports actual usage and receives facts. This phase delivers it, for six pricing modes, and a Demo tenant shows it working with nothing but that contract (section 11.7).
 3. **A financial platform.** Tax engines, e-invoicing, multi-currency, disputes and multiple operators extend the same core. This layer comes in a later phase (section 2.3), and the current design does not block it.
 
 ## 2. Goals, scope and focus
 
 ### 2.1 Core problem
 
-> How can many independent Client Systems estimate, reserve and settle the cost of rented resources against one shared balance, so that money is never created, lost or charged twice, even when requests are retried, processes die mid-transaction, events arrive twice, late or out of order, webhooks fail for days, and several flows race over the same wallet, while Billing never decides what happens to a Client's resources?
+> How can many independent tenant_systems estimate, reserve and settle the cost of rented resources against one shared balance, so that money is never created, lost or charged twice, even when requests are retried, processes die mid-transaction, events arrive twice, late or out of order, webhooks fail for days, and several flows race over the same wallet, while Billing never decides what happens to a tenant's resources?
 
 The invariant above every other requirement:
 
@@ -48,7 +50,7 @@ BILLING DESCRIBES FACTS · IT NEVER INSTRUCTS A CLIENT WHAT TO DO WITH A RESOURC
 
 | Quantity | Target | Consequence for the design |
 | --- | --- | --- |
-| Client Systems | 20 | Each has its own credentials, products, meters and webhook endpoints |
+| tenant_systems | 20 | Each has its own credentials, products, meters and webhook endpoints |
 | Tenants | 10,000 | Rules out schema-per-tenant (section 12.2) |
 | Usage events, peak | 5,000 per second | Too many for row-at-a-time PostgreSQL; goes to ClickHouse through Kafka (section 10.2) |
 | Reservations, peak | 500 per second across all accounts | One PostgreSQL primary is enough, provided a hold writes no postings (section 6.6) |
@@ -72,12 +74,12 @@ This table decides how deep every later section goes.
 | Webhook Dispatcher and Event Ingestion | Signed delivery, retries, delivery state, inbound normalization | Deep, with measured experiments |
 | Code architecture and governance | Modules, DDD, Clean Architecture, CQRS, enforced by the build | Deep |
 | Pricing Engine | Plan versions, six pricing modes, estimation | Deep |
-| Multi-tenancy | Isolation between tenants and between Client Systems | Deep, with measured experiments |
+| Multi-tenancy | Isolation between tenants and between tenant_systems | Deep, with measured experiments |
 | Payment & Refund | PSP adapter, payment and refund state machines | Solid implementation |
 | Invoicing & Subscription | Cycles, invoices, receivables | Solid implementation |
 | Reconciliation & Audit | Ledger against PSP, audit trail, tamper evidence | Solid implementation |
 | Deployment and scaling | Kubernetes in every environment, connection pooling, logical shards | Solid implementation |
-| Demo Client System | One simulated service per pricing mode on the public contract only, and the coverage matrix it drives; development, CI and staging, never production; built after the main system | Solid implementation |
+| Demo tenant | One simulated service per pricing mode on the public contract only, and the coverage matrix it drives; development, CI and staging, never production; built after the main system | Solid implementation |
 | Scheduler | Fires idempotent jobs | Basic |
 | API Gateway | Authentication at the edge, rate limits, routing | Basic |
 | Web Portal | Self-service for customers and finance admins | Basic |
@@ -95,10 +97,10 @@ This table decides how deep every later section goes.
 - Inbound integration through REST, Kafka topic and signed webhook; outbound through REST status API, catch-up event feed and signed webhooks.
 - Authentication, idempotency, retry, signature verification and delivery-state tracking on every integration path.
 - Shared-schema multi-tenancy with PostgreSQL row-level security, one currency per billing account.
-- 20 Client Systems, 10,000 tenants, 5,000 usage events per second, 500 reservations per second.
+- 20 tenant_systems, 10,000 tenants, 5,000 usage events per second, 500 reservations per second.
 - Kubernetes in production, plus a mini profile of the same Helm charts for staging and development (section 19.8).
 - 1,024 logical ledger shards from the first release, on one physical cluster in production (section 19.6).
-- A Demo Client System for the demo script, the smoke suite and a coverage matrix of all six pricing modes on prepaid and postpaid accounts, installed on development and staging and never on production, and built after the main system (sections 11.7, 11.8 and 21).
+- A Demo tenant for the demo script, the smoke suite and a coverage matrix of all six pricing modes on prepaid and postpaid accounts, installed on development and staging and never on production, and built after the main system (sections 11.7, 11.8 and 21).
 
 **Later**
 
@@ -116,7 +118,7 @@ This table decides how deep every later section goes.
 
 **Out of scope**
 
-- Managing or acting on resources: start, renew, throttle, suspend, terminate. These belong to the Client System.
+- Managing or acting on resources: start, renew, throttle, suspend, terminate. These belong to the tenant_system.
 - Storing Client reaction policies. A Client decides for itself how to react to `payment.failed`; Billing stores only the event types each endpoint subscribes to and the thresholds that define a balance fact.
 - Resource, Order, Execution and Queue data. Billing stores opaque references such as `resource_ref` and `client_reference`.
 - Acting as a payment processor or holding card data: the PSP owns both, so cardholder data never enters Billing.
@@ -124,23 +126,24 @@ This table decides how deep every later section goes.
 
 ## 3. Users, use cases and requirements
 
-Billing serves machines first: Client Systems drive nearly all traffic through the API, while people use the portal only for funding, statements and finance control.
+Billing serves machines first: tenant_systems drive nearly all traffic through the API, while people use the portal only for funding, statements and finance control.
 
 ### 3.1 User groups
 
-- **Client System.** An external service such as GPU compute, VM rental or storage. It owns Resource, Order, Execution and Queue. It estimates, reserves, commits, sends usage, receives webhooks and decides how to react. The Demo Client System of section 11.7 is one of these, with no extra role or use case.
-- **Customer (Tenant).** The organization that pays. It tops up, views balances and invoices, pays invoices and requests refunds. One tenant owns one or more billing accounts and may use several Client Systems.
-- **Finance Admin.** Operator staff who publish price plans, set credit limits, approve refunds, resolve reconciliation exceptions and post manual adjustments. Finance Admins are not tenant users: every cross-tenant read names a tenant and is audited.
+- **tenant_system.** A tenant's external service — GPU compute, VM rental or storage. It owns Resource, Order, Execution and Queue. It estimates, reserves, commits, sends usage, receives webhooks and decides how to react. The Demo tenant of section 11.7 runs one, with no extra role or use case. It is not the tenant itself.
+- **tenant_user.** A person who belongs to a tenant (its staff). They publish price plans, manage products, meters and users, and read their tenant's reports. Rights are `TenantPermission` bits (DR-112).
+- **tenant_customer.** A customer of a tenant — the organization or person that pays. It tops up, views balances and invoices, pays invoices and requests refunds. One tenant_customer owns one or more billing accounts inside exactly one tenant and is the wallet holder; one tenant may have many tenant_customers.
+- **platform_user** (Finance Admin). Operator staff of the billing app. They publish price plans, set credit limits, approve refunds, resolve reconciliation exceptions and post manual adjustments across tenants. A "Finance Admin" is a platform_user holding the finance permission bits; there are no named roles. Every cross-tenant read names a tenant and is audited.
 - **System.** Automatic jobs for expiry, rating, cycle close, webhook delivery and reconciliation.
 
 ### 3.2 Use cases
 
-The diagram shows the split of responsibility: every Client System use case is a question or a report of a fact, and none lets Billing act on a resource.
+The diagram shows the split of responsibility: every tenant_system use case is a question or a report of a fact, and none lets Billing act on a resource.
 
 ```mermaid
 flowchart LR
-    client(["Client System"])
-    customer(["Customer (Tenant)"])
+    client(["tenant_system"])
+    customer(["tenant_customer"])
     admin(["Finance Admin"])
     system(["System"])
 
@@ -184,18 +187,18 @@ flowchart LR
 
 | ID | Role | Use case |
 | --- | --- | --- |
-| UC-01 | Client System | Estimate the cost of a workload before running it |
-| UC-02 | Client System | Reserve budget before enqueuing work; proceed or not based on the answer |
-| UC-03 | Client System | Commit actual usage when work finishes |
-| UC-04 | Client System | Release an unused reservation, or extend a running one |
-| UC-05 | Client System | Report usage by REST, Kafka topic or signed webhook |
-| UC-06 | Client System | Receive signed status webhooks and apply its own policy |
-| UC-07 | Client System | Query balance, standing, reservation and invoice status; catch up on missed events |
-| UC-08 | Client System | Register endpoints, choose event types, rotate secrets, redeliver |
-| UC-09 | Customer | Top up a wallet through the PSP |
-| UC-10 | Customer | View balance, holds and transaction history |
-| UC-11 | Customer | View invoices and pay outstanding ones |
-| UC-12 | Customer | Request a refund |
+| UC-01 | tenant_system | Estimate the cost of a workload before running it |
+| UC-02 | tenant_system | Reserve budget before enqueuing work; proceed or not based on the answer |
+| UC-03 | tenant_system | Commit actual usage when work finishes |
+| UC-04 | tenant_system | Release an unused reservation, or extend a running one |
+| UC-05 | tenant_system | Report usage by REST, Kafka topic or signed webhook |
+| UC-06 | tenant_system | Receive signed status webhooks and apply its own policy |
+| UC-07 | tenant_system | Query balance, standing, reservation and invoice status; catch up on missed events |
+| UC-08 | tenant_system | Register endpoints, choose event types, rotate secrets, redeliver |
+| UC-09 | tenant_customer | Top up a wallet through the PSP |
+| UC-10 | tenant_customer | View balance, holds and transaction history |
+| UC-11 | tenant_customer | View invoices and pay outstanding ones |
+| UC-12 | tenant_customer | Request a refund |
 | UC-13 | Finance Admin | Draft and publish a price plan version |
 | UC-14 | Finance Admin | Approve or reject a refund |
 | UC-15 | Finance Admin | Resolve reconciliation exceptions and quarantined usage; post adjustments |
@@ -210,7 +213,7 @@ flowchart LR
 
 | ID | Requirement |
 | --- | --- |
-| FR-01 | A Finance Admin registers Client Systems; each Client System has its own namespace of products and meters. |
+| FR-01 | A Finance Admin registers tenant_systems; each tenant_system has its own namespace of products and meters. |
 | FR-02 | A price plan version is immutable once published and supports time-based, usage-based, workload-based, event-based, subscription and hybrid pricing. |
 | FR-03 | Estimating cost returns an amount and the plan version used, and changes no state. |
 | FR-04 | Reserving checks available balance atomically and either records a hold or returns `insufficient_balance`. |
@@ -219,7 +222,7 @@ flowchart LR
 | FR-07 | Extending changes a reservation's TTL and may raise its held amount, subject to the same balance check as FR-04. |
 | FR-08 | A reservation with no commit before its TTL is released automatically and `reservation.expired` is published. |
 | FR-09 | A commit that arrives after expiry, within the late-commit window, posts the actual cost and publishes `reservation.late_committed`. |
-| FR-10 | Usage is accepted by REST, Kafka topic and signed webhook; retries of the same `event_id` from one Client System are counted once. |
+| FR-10 | Usage is accepted by REST, Kafka topic and signed webhook; retries of the same `event_id` from one tenant_system are counted once. |
 | FR-11 | Streaming usage is rated into charges; usage settled by a reservation commit is never charged a second time. |
 | FR-12 | Each billing account is prepaid or postpaid, in one currency, with a configurable credit limit and low-balance threshold. |
 | FR-13 | A customer tops up a wallet through a PSP; the wallet is credited only after a verified PSP result. |
@@ -234,14 +237,14 @@ flowchart LR
 | FR-22 | Clients register webhook endpoints per event type; deliveries are HMAC-signed, retried with backoff, tracked per attempt and can be redelivered. |
 | FR-23 | A Client can read an account's events from a cursor to recover anything webhooks missed. |
 | FR-24 | Every write command accepts an `Idempotency-Key`; a replay returns the first result and a changed body returns `409`. |
-| FR-25 | A tenant's data is unreachable from another tenant's context, and a Client System reaches only tenants granted to it. |
+| FR-25 | A tenant's data is unreachable from another tenant's context, and a tenant_system reaches only tenants granted to it. |
 | FR-26 | Ledger is reconciled daily against PSP records; each difference becomes a tracked exception. |
 | FR-27 | Every admin action and every state change on money objects is recorded in an audit log. |
 | FR-28 | Journals and invoices are exported to ERP. |
 | FR-29 | A web portal serves customers (top up, balance, invoices, refunds) and Finance Admins (plans, limits, approvals, reconciliation). |
 | FR-30 | Billing exposes no API, event or integration that starts, renews, throttles, suspends or terminates a resource. |
 | FR-31 | A wallet's balance and held amount at any past time can be reconstructed and explained from an append-only movement log. |
-| FR-32 | A Demo Client System exercises estimates, reservations, usage, webhooks and the catch-up feed through the public contract only; it runs in development, CI and staging, and is never deployed to production. |
+| FR-32 | A Demo tenant exercises estimates, reservations, usage, webhooks and the catch-up feed through the public contract only; it runs in development, CI and staging, and is never deployed to production. |
 | FR-33 | Every pricing mode and charge model runs through the Demo Client on both a prepaid and a postpaid account, from usage through charge to invoice, and is checked against expected amounts fixed independently of Billing's rating code. |
 
 ### 3.4 Non-functional requirements
@@ -273,11 +276,11 @@ These load numbers are design targets. They are recalibrated to the experiment m
 
 ## 4. Overall architecture and technology
 
-Billing is a modular monolith on Java 25 and Spring Boot 4: one codebase and one artifact, run as several process roles, with PostgreSQL as the only source of truth for money. Correctness rests on local transactions inside one module; splitting Wallet, Reservation and Charge across services would turn each commit into a saga with a window where money is held nowhere. The Client's only coupling is the API and event contract, so Billing can change internally without any Client noticing.
+Billing is a modular monolith on Java 25 and Spring Boot 4: one codebase and one artifact, run as several process roles, with PostgreSQL as the only source of truth for money. Correctness rests on local transactions inside one module; splitting Wallet, Reservation and Charge across services would turn each commit into a saga with a window where money is held nowhere. The tenant's only coupling is the API and event contract, so Billing can change internally without any Client noticing.
 
 ```mermaid
 flowchart TD
-    client["Client Systems (N)"]
+    client["tenant_systems (N)"]
     people["Customers and Finance Admins"]
     psp["Payment Gateway (PSP)"]
     idp["Identity Provider (OIDC)"]
@@ -357,13 +360,13 @@ The main flow: a Client reserves through the gateway; Wallet & Ledger asks Prici
 
 Modules call each other only through a public `api` package; no module reads another module's schema.
 
-The Demo Client System (section 11.7) is not a component of Billing. It is one of the "Client Systems (N)" in the figure, so the architecture does not change for it.
+The Demo tenant (section 11.7) is not a component of Billing. It is one of the "tenant_systems (N)" in the figure, so the architecture does not change for it.
 
 ### 4.2 Cross-cutting principles
 
 - **Ledger is the only writer of money.** Pricing computes, Invoicing and Payment request, and only Wallet & Ledger changes a balance. A bug in any other module cannot create an unbalanced journal.
 - **One transaction touches one module.** Reserve, commit, refund hold and charge all live inside Wallet & Ledger, so each is a single local transaction. Effects across modules travel by idempotent call or event, which forces every crossing to tolerate a crash between steps. Each module has its own outbox table, so there is no exception to this rule, and any store can move to its own cluster.
-- **Billing states facts and Clients decide.** Events and statuses never name a resource action. Losing every webhook delays a Client's reaction; it can never cause Billing to stop a resource.
+- **Billing states facts and Clients decide.** Events and statuses never name a resource action. Losing every webhook delays a tenant's reaction; it can never cause Billing to stop a resource.
 - **PostgreSQL decides and everything else follows.** Kafka, ClickHouse and webhooks all carry derived or provisional information. Losing Kafka delays events; losing ClickHouse delays streaming charges; neither blocks a reservation nor changes a balance incorrectly.
 - **Every effect is idempotent by business key.** At-least-once delivery is assumed on every path, and a unique database constraint on the business key turns a duplicate into a no-op.
 - **Capacity grows without touching a contract.** Roles, stores and shards each scale independently, so growth means more replicas, a store moved to its own cluster or a shard moved to a new one. No Client sees any of these (section 19.6).
@@ -429,7 +432,7 @@ One artifact starts in the role named by `billing.role`. Domain and application 
 | C3 Webhook "5xx, 408, 429, timeout, connection error → retrying; other 4xx → dead" | Section 11.3 |
 | Deployment diagram | PgBouncer, operators and environments are infrastructure, so they appear there and not in C2 (sections 19.1, 19.7 and 19.8) |
 | Not drawn in C2 | Identity Provider, reachable from the gateway as in C1; object storage for invoices and digests; PSP settlement reports read by Reconciliation |
-| Not drawn in C1 or C2 | Demo Client System, one instance of the Client Systems box, present only on development and staging (section 11.7) |
+| Not drawn in C1 or C2 | Demo tenant, one instance of the tenant_systems box, present only on development and staging (section 11.7) |
 
 ## 5. Code architecture and rule enforcement
 
@@ -597,7 +600,7 @@ A **billing account** is the payer: one tenant, one currency, one mode. It has e
 | --- | --- | --- | --- |
 | `customer_wallet` | Liability when positive, receivable when negative | Billing account | What Billing owes the customer, or the customer owes Billing |
 | `psp_clearing` | Asset | PSP and currency | Money held at or in transit from a PSP |
-| `revenue` | Income | Client System and currency | Earned from services |
+| `revenue` | Income | tenant_system and currency | Earned from services |
 | `adjustment` | Expense | Currency | Promotional credit and goodwill adjustments |
 
 Every business event maps to one fixed journal template. A template is code, so an operator cannot invent an unbalanced entry.
@@ -819,7 +822,7 @@ A wallet carries a `standing`, recomputed inside the lock after every change. An
 
 A rejected reservation can also leave `available` positive, for example 200,000 available against a request for 500,000. Standing does not change, since one large request says nothing lasting about the wallet. `balance.insufficient` is still published, with `requested_amount` in its data, at most once per 5 minutes per wallet (`wallet.insufficient_notified_at`).
 
-Standing is a description. Whether `INSUFFICIENT` stops new work, allows a grace period or only raises a warning is the Client's own policy.
+Standing is a description. Whether `INSUFFICIENT` stops new work, allows a grace period or only raises a warning is the tenant's own policy.
 
 ### 6.8 Wallet movement log
 
@@ -898,7 +901,7 @@ A reservation holds budget before the Client enqueues work and settles it exactl
 ```mermaid
 sequenceDiagram
     autonumber
-    participant C as Client System
+    participant C as tenant_system
     participant W as Wallet and Ledger
     participant P as Pricing Engine
     participant DB as Ledger DB (account's shard)
@@ -926,7 +929,7 @@ sequenceDiagram
     end
 ```
 
-The flow shows that Billing does not touch the queue: the Client enqueues only after the `201`, and the reaction to `402` is the Client's own.
+The flow shows that Billing does not touch the queue: the Client enqueues only after the `201`, and the reaction to `402` is the tenant's own.
 
 Step by step:
 
@@ -965,7 +968,7 @@ A rejected request creates no reservation; only the stored idempotent response r
 | `ACTIVE` | `EXPIRED` | Expiry job, `expires_at` passed | `held -= held_amount`; `reservation.expired` |
 | `EXPIRED` | `LATE_COMMITTED` | Commit within `late_commit_window` | `balance -= charged`; charge and journal; `reservation.late_committed`, `charge.posted`; may push `available` negative |
 
-**Parameters** (per Client System; values are proposed defaults)
+**Parameters** (per tenant_system; values are proposed defaults)
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
@@ -1155,7 +1158,7 @@ Modulith's event publication registry persists events and forwards them to Kafka
 | `billing.events.v1` | `account_id` | 128 | 30 days | All domain events; one topic, so a module's events keep their order across event types of one account |
 | `billing.jobs.v1` | `account_id` | 64 | 7 days | Expiry and rating jobs |
 | `usage.raw.v1` | `account_id` | 96 | 7 days | Normalized usage events |
-| `client.inbound.v1` | `client_id` | 12 | 7 days | Kafka channel for Client Systems (section 11.1) |
+| `client.inbound.v1` | `client_id` | 12 | 7 days | Kafka channel for tenant_systems (section 11.1) |
 
 All topics use replication factor 3, `min.insync.replicas=2` and `acks=all`. The partition count of `billing.events.v1` is fixed for its version, because the feed cursor depends on it (section 11.6). It starts high because idle partitions cost little and changing it later needs a new topic version; the counts cover the growth target of section 2.1.
 
@@ -1234,12 +1237,12 @@ Pricing is a pure function from a plan version and a quantity to an amount: it w
 
 | Concept | Meaning |
 | --- | --- |
-| `Product` | What a Client System sells; namespaced per Client System, such as `gpu.a100` |
+| `Product` | What a tenant_system sells; namespaced per tenant_system, such as `gpu.a100` |
 | `Meter` | A measured quantity of a product, with a unit, an aggregation (`SUM`, `MAX`, `COUNT`) and declared dimensions, such as `gpu_seconds` with dimension `region` |
 | `PricePlan` | A named plan, with a sequence of versions |
 | `PricePlanVersion` | An immutable list of price components with an `effective_from` |
 | `PriceComponent` | One priced line: meter or flat fee, charge model, tiers, included quantity, dimension filter, minimum and maximum |
-| `PriceAssignment` | Which plan applies to which account and product; falls back to the Client System's default plan |
+| `PriceAssignment` | Which plan applies to which account and product; falls back to the tenant_system's default plan |
 
 **All six pricing modes are one model.** They differ only in where the quantity comes from, not in how money is computed:
 
@@ -1322,7 +1325,7 @@ Usage is durable once acknowledged, and a quantity turns into money only through
 ```mermaid
 sequenceDiagram
     autonumber
-    participant C as Client System
+    participant C as tenant_system
     participant I as Event Ingestion
     participant K as Kafka usage.raw.v1
     participant M as Metering consumer
@@ -1366,7 +1369,7 @@ Usage event contract:
 }
 ```
 
-`event_id` is unique per Client System, and an event's fields never change across retries. Ingest assigns `dimension_key` from the meter's declared dimensions, so a Client cannot create unbounded price groups with free-form attributes.
+`event_id` is unique per tenant_system, and an event's fields never change across retries. Ingest assigns `dimension_key` from the meter's declared dimensions, so a Client cannot create unbounded price groups with free-form attributes.
 
 ### 10.2 Deduplication: options and rationale
 
@@ -1497,11 +1500,11 @@ Billing is reachable through three inbound channels that converge on one contrac
 | Channel | Used for | Authentication | Durable when |
 | --- | --- | --- | --- |
 | REST `POST /v1/usage` | Usage batches | OAuth2 client credentials | `202` returned, after Kafka `acks=all` |
-| Kafka `client.inbound.v1` | High-volume Clients that already run Kafka | mTLS and per-client ACLs on the listener | The Client's produce is acknowledged |
+| Kafka `client.inbound.v1` | High-volume Clients that already run Kafka | mTLS and per-client ACLs on the listener | The tenant's produce is acknowledged |
 | Signed webhook `POST /v1/inbound/{client_id}` | Clients that can only send webhooks | HMAC with the same scheme as section 11.4, using a separate inbound secret | `2xx` returned, after Kafka `acks=all` |
 | REST reservations and commit | Budget control | OAuth2 client credentials, `Idempotency-Key` | Response received; synchronous only, as a hold needs an immediate answer |
 
-All usage paths pass through one `IngestUsage` handler, which rejects with a per-event reason, so a Client's choice of channel changes transport and nothing else. A commit by Kafka is deliberately not offered: a Client needs the answer, and the event channel is one-way.
+All usage paths pass through one `IngestUsage` handler, which rejects with a per-event reason, so a tenant's choice of channel changes transport and nothing else. A commit by Kafka is deliberately not offered: a Client needs the answer, and the event channel is one-way.
 
 ### 11.2 Webhook Dispatcher
 
@@ -1631,11 +1634,11 @@ Webhooks can fail for days, so a Client needs a way to reconcile that does not d
 
 The recommended Client pattern is to treat webhooks as a low-latency hint: apply each event once by `id`, and periodically read the feed from the last cursor. The standing and balance status endpoints give current truth for anything older.
 
-### 11.7 Demo Client System
+### 11.7 Demo tenant
 
-The Demo Client System reaches Billing only through the public contract, so whatever a demo shows is what a real integration gets, and Billing contains no code that knows the demo exists.
+The Demo tenant reaches Billing only through the public contract, so whatever a demo shows is what a real integration gets, and Billing contains no code that knows the demo exists.
 
-It plays a small rental company named `demo-rental`, which sells one simulated service per pricing mode. It owns its jobs, queue and reaction policy, as any Client does, but runs no real resource: a job is a timer that produces usage numbers. From S8 it also serves as the webhook target of the smoke suite (EXP-17) and the driver of the coverage matrix (section 11.8). It does not count toward the 20 Client Systems of section 2.1.
+It plays a small rental company named `demo-rental`, which sells one simulated service per pricing mode. It owns its jobs, queue and reaction policy, as any Client does, but runs no real resource: a job is a timer that produces usage numbers. From S8 it also serves as the webhook target of the smoke suite (EXP-17) and the driver of the coverage matrix (section 11.8). It does not count toward the 20 tenant_systems of section 2.1.
 
 | Pricing mode | Simulated service | Product and meter | Billing contract used |
 | --- | --- | --- | --- |
@@ -1693,11 +1696,11 @@ stateDiagram-v2
 
 Each call's `Idempotency-Key` derives from the job (`<job_id>-reserve`, `<job_id>-extend-<n>`, `<job_id>-commit`, `<job_id>-release`), and `client_reference` is the job ID. The pending call is stored before it is sent, and a loop resends it with the same key after a crash, a timeout, `429` or `503`, honoring `Retry-After`. A `REJECTED` job stays rejected, and submitting again creates a new job with a new key, because Billing stores and replays a `402` under the old key (section 8.1).
 
-**Metered streams and subscriptions.** The inference, OCR and API platform services have no reservation, so they have no job lifecycle: a stream is only running or paused. Its `event_id` is `<stream_id>-<seq>`, and a batch is stored before it is sent, so a resend carries identical fields, as section 10.1 requires. Subscription calls take their key from the Demo Client's own subscription record.
+**Metered streams and subscriptions.** The inference, OCR and API platform services have no reservation, so they have no job lifecycle: a stream is only running or paused. Its `event_id` is `<stream_id>-<seq>`, and a batch is stored before it is sent, so a resend carries identical fields, as section 10.1 requires. Subscription calls take their key from the Demo tenant's own subscription record.
 
 **Receiving facts.** The receiver verifies the signature and timestamp over the raw bytes (section 11.4), inserts the event under a unique `id` and returns `200` only after the insert. A duplicate returns `200` and is not applied again. A second loop reads the feed from its stored cursor and applies events through the same insert. The page counts events by channel and duplicates dropped, which makes at-least-once delivery visible. At startup the Demo Client registers its own endpoint if none exists (UC-08) and stores the secret in its database.
 
-**Reaction policy.** The policy lives in the Demo Client's configuration and can be switched on its page, so two runs can react differently to one fact while Billing does the same thing in both (FR-30).
+**Reaction policy.** The policy lives in the Demo tenant's configuration and can be switched on its page, so two runs can react differently to one fact while Billing does the same thing in both (FR-30).
 
 | Fact | Reaction |
 | --- | --- |
@@ -1729,7 +1732,7 @@ It reads `standing` instead of acting on the event itself for two reasons: a ret
 | `pending_call_retry_interval` | 5 s | How often pending calls are resent |
 | `feed_poll_interval` | 60 s | How often the feed is read |
 
-**Setup.** `make mini-up` installs the `demo-client` chart after Billing. The staging release installs the same chart. A post-install seed job calls the admin API as the Finance Admin `demo-finance`, from the seeded Keycloak realm on mini and from a service account in the staging realm, whose secret lives on staging's path in the secret manager. It creates the tenant, one prepaid and one postpaid VND account on the default monthly cycle, the `demo-rental` Client System with its products and meters, the grant and the published price plans of section 11.8, whose 1,000,000 VND per GPU hour yields the amounts of section 17.2. A `409` on any of these counts as already done, so the job can run again safely. Each realm also holds the `demo-rental` client credentials, a Customer user, `demo-customer`, for the portal, and an operator with `demo_operator`, and the chart adds a Kafka user with mTLS and an ACL on `client.inbound.v1`. The smoke suite and Playwright drive the Demo Client through its own `/demo/*` REST API, which the page also uses.
+**Setup.** `make mini-up` installs the `demo-client` chart after Billing. The staging release installs the same chart. A post-install seed job calls the admin API as the Finance Admin `demo-finance`, from the seeded Keycloak realm on mini and from a service account in the staging realm, whose secret lives on staging's path in the secret manager. It creates the tenant, one prepaid and one postpaid VND account on the default monthly cycle, the `demo-rental` tenant_system with its products and meters, the grant and the published price plans of section 11.8, whose 1,000,000 VND per GPU hour yields the amounts of section 17.2. A `409` on any of these counts as already done, so the job can run again safely. Each realm also holds the `demo-rental` client credentials, a Customer user, `demo-customer`, for the portal, and an operator with `demo_operator`, and the chart adds a Kafka user with mTLS and an ACL on `client.inbound.v1`. The smoke suite and Playwright drive the Demo Client through its own `/demo/*` REST API, which the page also uses.
 
 **Reaching the Demo Client.** On mini, Billing delivers to it over plain HTTP at an in-cluster address, which section 11.5 forbids for every other endpoint, so `values-mini.yaml` names that one host in `webhook.internal_endpoint_allowlist`. On staging the allow-list stays empty: the receiver has a public DNS name and TLS at the ingress, so delivery passes the same `https` and SSRF checks as any real Client, and staging tests those checks as well.
 
@@ -1785,7 +1788,7 @@ Each cell passes only if all of these hold:
 
 A fake clock is rejected: section 4.2 lets only the database clock decide expiry, and replacing it would add the demo branch that section 11.7 forbids. Backdating rows is rejected as well, since a write outside the contract would prove nothing about the contract.
 
-**Runner.** `make demo-test` runs `demo-client/conformance`, a JUnit project separate from the Demo Client. It drives `/demo/*` as the Client's operator, and calls the public API as `demo-customer` to pay and as `demo-finance` to create accounts and approve refunds. The Demo Client itself never holds those two identities. The last step runs the checks of section 19.4 with read-only database access, which only the runner has. Cells run in parallel and poll with a timeout rather than sleep. CI runs it on mini at each merge, and `make demo-test ENV=staging` runs it after each staging release.
+**Runner.** `make demo-test` runs `demo-client/conformance`, a JUnit project separate from the Demo Client. It drives `/demo/*` as the tenant's operator, and calls the public API as `demo-customer` to pay and as `demo-finance` to create accounts and approve refunds. The Demo Client itself never holds those two identities. The last step runs the checks of section 19.4 with read-only database access, which only the runner has. Cells run in parallel and poll with a timeout rather than sleep. CI runs it on mini at each merge, and `make demo-test ENV=staging` runs it after each staging release.
 
 Staging lives on, so a run must clean up after itself: a 5-minute cycle left running would issue about 288 invoices per account per day. At the end of a run, the runner cancels its subscriptions and sets each account's `cycle_length` back to monthly, and it keeps the accounts as synthetic data. Accounts are named `run-<id>`, and each run starts by doing the same for any that an interrupted run left on a short cycle.
 
@@ -1798,7 +1801,7 @@ Fixtures are plain files of hand-calculated numbers, reviewed like code. The pro
 | Throughput, latency and failover | EXP-03, EXP-08 and EXP-14, at production size |
 | Calendar months: anchors at month end, leap years | Unit and property tests on the cycle calculator |
 | The 72-hour freeze horizon of rating, and late events past it | EXP-08 |
-| `CAP_AT_HOLD`, which is set per Client System | Module integration tests |
+| `CAP_AT_HOLD`, which is set per tenant_system | Module integration tests |
 | A real PSP's behavior | Failure tests at S5, then the PSP sandbox on staging; the matrix uses `FakePsp` on staging too, so a sandbox outage cannot fail a pricing check |
 
 ## 12. Multi-tenancy
@@ -1809,28 +1812,28 @@ Isolation between tenants is enforced by PostgreSQL itself, so a query that forg
 
 ```mermaid
 flowchart LR
-    tenant["Tenant: paying organization"]
+    tenant["tenant: the business (isolation unit)"]
+    customer["tenant_customer: pays, holds the wallet"]
     account["Billing Account: one currency, one mode"]
     wallet["Wallet: balance, held"]
-    client["Client System: integration with its own credentials"]
-    grant["Client grant: client may act for tenant"]
+    sys["tenant_system: the business service, own credentials"]
 
-    tenant -- "1..N" --> account
+    tenant -- "1..N" --> customer
+    customer -- "1..N" --> account
     account -- "1..1" --> wallet
-    client -- "1..N" --> grant
-    tenant -- "1..N" --> grant
+    tenant -- "1..N" --> sys
 ```
 
-The diagram separates two axes that are easy to mix up. **Tenant** isolates money: whose wallet it is. **Client System** isolates integration: which service is acting. A tenant using GPU compute and storage has one wallet, charged by two Client Systems, and neither Client System can read the other's reservations.
+The diagram separates three axes that are easy to mix up. **tenant** isolates data: the business, and the row-level-security boundary. **tenant_customer** isolates money: whose wallet it is, a customer inside one tenant. **tenant_system** isolates integration: which service is acting for the tenant. A tenant using GPU compute and storage has a tenant_system for each, and its tenant_customers each own one or more wallets charged by them; neither tenant_system can read the other's reservations, and no tenant can read another tenant's data.
 
 | Actor | Token | Tenant context comes from | Sees |
 | --- | --- | --- | --- |
-| Client System | OAuth2 client credentials, `client_id` | The requested account's tenant, after checking the `client_grant` | Its own reservations, usage and subscriptions; balance and standing for granted accounts |
-| Customer | OIDC user token with a `tenant_id` claim | The claim | Everything of its own tenant, across Client Systems |
-| Finance Admin | OIDC user token with `finance_admin` role | Named explicitly per request, recorded in the audit log | One tenant at a time |
+| tenant_system | OAuth2 client credentials (`client_id` = OIDC client id) | The requested account's tenant, after checking `customer_enrollment` | Its own reservations, usage and subscriptions; balance and standing for enrolled customers |
+| tenant_customer | OIDC user token with `tenant_id` and `customer_id` claims | The claims | Its own accounts within its tenant, across that tenant's tenant_systems |
+| platform_user (Finance Admin) | OIDC user token in the platform realm | Named explicitly per request, recorded in the audit log | One tenant at a time |
 | System job | No token; internal role | The event or row being processed | One tenant per unit of work, except for candidate scans |
 
-A Client System never supplies a tenant ID: Billing derives it from the account, and only after checking the grant, so a forged value has nowhere to go. That lookup reads the `platform` schema, which maps IDs and holds no financial data.
+A tenant_system never supplies a tenant ID: Billing derives it from the account, and only after checking the enrollment, so a forged value has nowhere to go. That lookup reads the `platform` schema, which maps IDs and holds no financial data.
 
 ### 12.2 Isolation model: options and rationale
 
@@ -1890,7 +1893,7 @@ Five layers, each independent of the others:
    ```
 
 4. **Two database roles.** `billing_app` is subject to RLS and owns nothing. `billing_system`, with `BYPASSRLS`, is used only by a separate `DataSource` that one small port interface reaches (`CrossTenantScan`), and only returns `(tenant_id, id)` candidates for jobs. Each candidate is then processed by a normal handler in its own tenant context. An ArchUnit rule limits who can use the port.
-5. **Client scope.** Handlers for Client Systems add `client_id` to the query, and a mismatch returns `404` so that the existence of another Client's reservation is not disclosed.
+5. **tenant_system scope.** Handlers for a tenant_system add `tenant_system_id` to the query, and a mismatch returns `404` so that the existence of another tenant's reservation is not disclosed.
 
 Kafka messages carry `tenant_id`, and each listener binds the context per message. ClickHouse has no RLS in this design: all access goes through one `UsageStore` adapter, whose query signature requires a `TenantId`.
 
@@ -1898,7 +1901,7 @@ Kafka messages carry `tenant_id`, and each listener binds the context per messag
 
 | Resource | Limit | Behavior at limit |
 | --- | --- | --- |
-| API calls | Per client and per tenant token bucket at the gateway; defaults of 500 and 100 per second | `429` with `Retry-After` |
+| API calls | Per tenant_system and per tenant token bucket at the gateway; defaults of 500 and 100 per second | `429` with `Retry-After` |
 | Reservations per account | 100 per second by default | `429` before a connection is taken |
 | Waiters per wallet | Wallet Gate: 5 per `api` replica (section 6.5) | `503 account_busy` with `Retry-After`, before a connection is taken |
 | Wallet lock | `lock_timeout` of 500 ms | `503 account_busy` with `Retry-After` |
@@ -2017,7 +2020,7 @@ An invoice is an immutable statement of charges that the Ledger already recorded
 
 A billing cycle belongs to an account, runs monthly by default and is anchored at the account's creation day. Its length is the account setting `cycle_length`, with a production floor of 1 day (section 19.8). A subscription attaches a plan's `FLAT` components to an account.
 
-**At cycle start**, the job posts each subscription fee through `PostCharge`, with source `cycle:<cycle_id>:<subscription_id>`, which makes re-running it harmless. On a prepaid account whose `available` cannot cover the fee, the fee is still posted only if the plan's `fee_on_insufficient` is `ALLOW`. With the default `SKIP`, no charge is posted and `subscription.fee_unpaid` is published, and the job retries when `balance.restored` arrives. Billing states the fact; whether the service continues is the Client's decision. A mid-cycle change prorates by the seconds remaining, as a new charge or a reversal. A subscription created mid-cycle pays its first fee prorated the same way, under the same source key and the same `fee_on_insufficient` rule, and later cycles pay the full fee.
+**At cycle start**, the job posts each subscription fee through `PostCharge`, with source `cycle:<cycle_id>:<subscription_id>`, which makes re-running it harmless. On a prepaid account whose `available` cannot cover the fee, the fee is still posted only if the plan's `fee_on_insufficient` is `ALLOW`. With the default `SKIP`, no charge is posted and `subscription.fee_unpaid` is published, and the job retries when `balance.restored` arrives. Billing states the fact; whether the service continues is the tenant's decision. A mid-cycle change prorates by the seconds remaining, as a new charge or a reversal. A subscription created mid-cycle pays its first fee prorated the same way, under the same source key and the same `fee_on_insufficient` rule, and later cycles pay the full fee.
 
 **At cycle close**, after `cycle_end + invoice_grace` (6 hours by default), Invoicing builds the invoice from its own projection of `charge.posted` events (section 5.3). Events can lag, so closing first checks completeness:
 
@@ -2102,6 +2105,8 @@ Jobs fire from `@Scheduled` methods in the `scheduler` role, guarded by ShedLock
 A daily export writes journals and issued invoices as versioned CSV and JSON files to object storage, and calls a configurable SFTP or HTTP target through an `ErpExporter` port. Each batch has a sequence number and a control total of debits and credits, so ERP can detect a missing or truncated batch. The ERP's own format and API are an open point (section 22.2), so this module is deliberately thin and comes after the core is right.
 
 ## 16. Data model
+> **Terminology.** Tenancy columns use the names in DR-112: the business key is `tenant_id`, the customer key is `customer_id` (old `client_id`→`tenant_id`, payer `tenant_id`→`customer_id`).
+
 
 This phase fixes the conceptual model, the partitioning and the mandatory constraints; complete DDL is written per module during implementation. Each module owns one PostgreSQL schema, and a reference across schemas is an ID with no foreign key.
 
@@ -2178,7 +2183,7 @@ Constraints are part of the design: the database rejects a wrong state even when
 | `posting CHECK (amount > 0)`, `CHECK (direction IN ('D','C'))` | No negative or ambiguous lines |
 | `wallet CHECK (held >= 0)`, `CHECK (credit_limit >= 0)` | Holds cannot go negative after a double release |
 | `reservation CHECK (held_amount > 0)`; status enum `CHECK` | Valid holds and states |
-| `reservation UNIQUE (client_id, client_reference)` | One reservation per Client's job, beyond the key's retention |
+| `reservation UNIQUE (client_id, client_reference)` | One reservation per tenant's job, beyond the key's retention |
 | Partial index `reservation (expires_at) WHERE status = 'ACTIVE' AND kind = 'BUDGET'` | Fast expiry scans, and refund holds excluded by construction |
 | `charge UNIQUE (journal_id)` | One journal per charge |
 | `idempotency_key PRIMARY KEY (client_id, key)` | The arbiter of retries |
@@ -2200,8 +2205,10 @@ Constraints are part of the design: the database rejects a wrong state even when
 - **Isolation level.** `READ COMMITTED` everywhere; correctness comes from explicit locks and unique constraints, whose behavior is easy to reason about statement by statement.
 
 ## 17. Backend API
+> **Terminology.** Tenancy columns use the names in DR-112: the business key is `tenant_id`, the customer key is `customer_id` (old `client_id`→`tenant_id`, payer `tenant_id`→`customer_id`).
 
-The API is a versioned REST contract written first in OpenAPI 3.1, from which server interfaces and the portal client are generated; Client Systems use it through OAuth2 client credentials and people through OIDC. Everything the portal does, a Client could do with suitable permissions, because the portal has no private backend.
+
+The API is a versioned REST contract written first in OpenAPI 3.1, from which server interfaces and the portal client are generated; tenant_systems use it through OAuth2 client credentials and people through OIDC. Everything the portal does, a Client could do with suitable permissions, because the portal has no private backend.
 
 ### 17.1 Endpoints
 
@@ -2241,8 +2248,8 @@ The API is a versioned REST contract written first in OpenAPI 3.1, from which se
 | | `GET /v1/webhook-deliveries`, `POST /v1/webhook-deliveries/{id}/redeliver` | History, redeliver |
 | Reconciliation | `GET /v1/admin/reconciliation/exceptions`, `POST .../{id}/resolve` | Exceptions |
 | Platform | `POST /v1/admin/tenants`, `POST /v1/admin/accounts` | Create a tenant, and a billing account with its wallet, mode, `credit_limit`, `cycle_length` and `payment_terms` |
-| | `POST /v1/admin/client-systems` | Register a Client System with its products and meters (FR-01) |
-| | `POST /v1/admin/client-grants` | Grant a Client System access to a tenant (FR-25) |
+| | `POST /v1/admin/client-systems` | Register a tenant_system with its products and meters (FR-01) |
+| | `POST /v1/admin/client-grants` | Grant a tenant_system access to a tenant (FR-25) |
 
 Calling a `/v1/admin/*` path needs the `finance_admin` role, and every call is audited.
 
@@ -2392,7 +2399,7 @@ flowchart LR
 | | Tenants and limits | Accounts, modes, credit limits, quarantined usage |
 | | Webhook deliveries | Attempts per delivery, dead-letter list, redeliver |
 
-The portal shows English first, with strings externalized through i18next so that Vietnamese can be added without code changes; the end-user language is an open point (section 22.2). The Demo Client's page is part of that Client (section 11.7), not of the portal, and the portal shows its reservations and charges as it would any Client's.
+The portal shows English first, with strings externalized through i18next so that Vietnamese can be added without code changes; the end-user language is an open point (section 22.2). The Demo tenant's page is part of that Client (section 11.7), not of the portal, and the portal shows its reservations and charges as it would any tenant's.
 
 ### 18.2 Technical notes
 
@@ -2490,7 +2497,7 @@ Every request, Kafka message and webhook attempt shares a trace, through OpenTel
 | DLQ | Any message | High |
 | Cycle close stuck | Completeness check failing for 15 minutes | High |
 
-Dashboards: money flow (holds, commits, charges), integration health per Client System, and per-endpoint webhook state.
+Dashboards: money flow (holds, commits, charges), integration health per tenant_system, and per-endpoint webhook state.
 
 ### 19.3 Behavior under failure
 
@@ -2673,7 +2680,7 @@ All environments install the same images from the same Helm charts and operators
 | Object storage | MinIO | MinIO | Managed S3-compatible |
 | Identity | Keycloak with a seeded realm | Keycloak | Production provider (section 22.2) |
 | PSP | `FakePsp` | PSP sandbox, and `FakePsp` for Demo Client accounts | Live PSP |
-| Client Systems | Demo Client from S8 (section 11.7) | Client staging, and Demo Client from S8 | Real Clients |
+| tenant_systems | Demo Client from S8 (section 11.7) | Client staging, and Demo Client from S8 | Real Clients |
 | Webhook endpoint allow-list | The in-cluster webhook target's host | Empty | Empty |
 | Job timing | Rating every 30 s on both account modes; `invoice_grace` 30 s; overdue job every 30 s; retry schedule one tenth of section 11.3 | Same as development, except the default retry schedule, so that Client staging integrations see real retry behavior | Defaults |
 | Floors on account settings | `cycle_length` 5 minutes; `payment_terms` 1 minute | Same as development | 1 day for both |
@@ -2681,7 +2688,7 @@ All environments install the same images from the same Helm charts and operators
 | Data | Synthetic seed | Synthetic; never a copy of production | Real |
 | Secrets | Development values in Kubernetes secrets | Separate path in the secret manager | Secret manager |
 
-The mini profile deliberately keeps 2 physical shards, even though production starts with 1: a routing bug is then found in the first week rather than on the day a cluster is added. The Demo Client's chart sits outside the one chart set: it is an external Client System installed alongside Billing on development and staging, so the Billing charts do not contain it and production never installs it.
+The mini profile deliberately keeps 2 physical shards, even though production starts with 1: a routing bug is then found in the first week rather than on the day a cluster is added. The Demo tenant's chart sits outside the one chart set: it is an external tenant_system installed alongside Billing on development and staging, so the Billing charts do not contain it and production never installs it.
 
 **Two development modes.** They serve different questions, and both run the same application.
 
@@ -2772,17 +2779,17 @@ flowchart LR
 | S7 (5 weeks) | Portal, Reconciliation, Audit digests, staging and production environments, load, failover and shard-move runs, ERP export | Main system complete: EXP-03, EXP-13, EXP-14, EXP-16 |
 | S8 (4 weeks) | Demo Client with all six services, receiver, feed loop, seed job, page, login, policy and fault switches; runner, fixtures, matrix and scenarios; its chart on mini and staging, and `FakePsp` on staging; the smoke suite moves from the stub to the Demo Client | Full demo on mini and staging; all 12 cells pass: EXP-18 |
 
-Total: about 31 weeks, or 7 months, for the main system, then about 4 weeks for S8: 35 weeks, or 8 months. The main system depends on nothing from S8. Until then, module integration, property and end-to-end tests cover each pricing mode, and WireMock stands in as the Client's webhook endpoint.
+Total: about 31 weeks, or 7 months, for the main system, then about 4 weeks for S8: 35 weeks, or 8 months. The main system depends on nothing from S8. Until then, module integration, property and end-to-end tests cover each pricing mode, and WireMock stands in as the tenant's webhook endpoint.
 
 **Cut order**: ERP export first, then Portal admin screens down to a CLI, then subscriptions with proration, then the Kafka inbound channel, then the catch-up feed. Cutting a Billing feature removes its cell or scenario from EXP-18 and nothing else. Within S8, the page goes first, down to its `/demo/*` API, and then the Kafka scenario; the matrix itself stays, since it is how the billing types are known to work. The shard-move rehearsal can wait for the first real need, but shard-bearing IDs and per-module outboxes cannot, because they are part of the contract. The Ledger, Reservation, Idempotency Guard, Outbox and invariant checks must not be cut, since they are the system's reason to exist and nothing can later be added to recover money lost without them.
 
 **Demo script**, after S8, on the mini profile (`make mini-up`) or on staging
 
-1. The seed job has created the tenant, account, Client System and grant (section 11.7). Log in to the portal as `demo-customer` and top up 10,000,000 through `FakePsp`. The portal shows the balance after the verified callback.
-2. On the Demo Client's page, submit a GPU job of 3,600 estimated `gpu_seconds`. It reserves 1,100,000. The portal shows the hold and lowered `available`; the page shows `reservation.created` with a verified signature.
+1. The seed job has created the tenant, account, tenant_system and grant (section 11.7). Log in to the portal as `demo-customer` and top up 10,000,000 through `FakePsp`. The portal shows the balance after the verified callback.
+2. On the Demo tenant's page, submit a GPU job of 3,600 estimated `gpu_seconds`. It reserves 1,100,000. The portal shows the hold and lowered `available`; the page shows `reservation.created` with a verified signature.
 3. The job finishes at 3,132 `gpu_seconds`, which costs 870,000. The balance, the charge explanation and the released 230,000 appear; the journal is balanced.
 4. Turn on the commit storm and run another job: the same commit goes out 10 times concurrently, with one charge and nine replayed responses with `Idempotent-Replayed: true`.
-5. Submit a job larger than `available`: a `402`, one `balance.insufficient`, and the job is `REJECTED` by the Demo Client's own policy. `standing` is unchanged, so the inference stream keeps running under either policy. Billing took no action on any resource.
+5. Submit a job larger than `available`: a `402`, one `balance.insufficient`, and the job is `REJECTED` by the Demo tenant's own policy. `standing` is unchanged, so the inference stream keeps running under either policy. Billing took no action on any resource.
 6. Start the inference stream with duplicate usage on. Within 3 minutes the charge appears at the exact quantity, with duplicates not counted. Switch to `stop-streaming` and submit a job that holds all of `available` through `max_amount`: `standing` becomes `INSUFFICIENT` and the stream pauses. The job settles below its hold, the remainder returns, the next balance event arrives and the stream resumes. Under `keep-streaming`, the same facts only raise a warning.
 7. Turn on the webhook outage for 1 minute and run several jobs. They still run and settle; deliveries show `RETRYING` in the portal, other endpoints are unaffected, and the feed loop still brings the events. Turn it off, and the deliveries arrive within about 2 minutes; the page counts them as duplicates dropped and shows no gaps.
 8. Force-delete an `api` pod under load with `kubectl`, then run the invariant checks: zero violations, on screen. Jobs caught mid-call resend with the same key and settle once.
@@ -2841,7 +2848,7 @@ Proposed values stand until confirmed.
 | Sync standby policy | When the sync standby is lost: `dataDurability: required`, which pauses writes (safer, proposed), or `preferred`, which continues with possible data loss (more available) | Owner |
 | Parameter defaults | TTL 1 hour, late window 7 days, horizon 72 hours, buffer 10%, retries about 70 hours, `payment_terms` 14 days; tune with real Clients | Owner, with the first Client |
 | Go-live against S8 | Go live with real money only after EXP-18 passes, since it is the only end-to-end check of every billing type | Owner |
-| Staging ingress reaches itself | Billing's delivery to the Demo Client's public name depends on the cluster routing to its own ingress; confirm with the chosen provider | Developer, S8 |
+| Staging ingress reaches itself | Billing's delivery to the Demo tenant's public name depends on the cluster routing to its own ingress; confirm with the chosen provider | Developer, S8 |
 | First fee of a subscription created mid-cycle | Prorated by the seconds remaining (section 14.1), and the matrix fixtures depend on this; a full first fee would be the alternative | Owner |
 | Portal end-user language | English first, i18n ready; add Vietnamese if customers need it | Owner |
 | jMolecules APIs | Confirm exact `jmolecules-archunit` rule APIs when S0 starts. Reconsider section 5.4 option B if Spring Data JDBC support in the ByteBuddy plugin becomes documented | Developer, S0 |
@@ -2863,7 +2870,7 @@ billing-system/
 │   └── src/main/java/.../billing/
 │       ├── BillingApplication.java
 │       ├── shared/kernel/           # Money, Currency, TenantId, AccountId, event envelope. Kept tiny
-│       ├── platform/                # Tenants, Client Systems, grants, tenancy hook, UnitOfWork, Shard Router
+│       ├── platform/                # Tenants, tenant_systems, grants, tenancy hook, UnitOfWork, Shard Router
 │       ├── ledger/                  # Wallet, Wallet Gate, Reservation, Charge, Journal, movement log, Idempotency Guard
 │       │   ├── package-info.java    # @ApplicationModule, @NullMarked
 │       │   ├── api/                 # LedgerApi, PostCharge, integration events
@@ -2885,7 +2892,7 @@ billing-system/
 │   ├── src/main/resources/db/migration/<module>/   # Flyway, one location per schema
 │   └── src/test/java/.../architecture/             # Modulith, ArchUnit, RLS coverage, event rules
 ├── portal/                          # React SPA
-├── demo-client/                     # Demo Client System: jobs, streams, webhook receiver, feed loop, page, seed job. No dependency on billing
+├── demo-client/                     # Demo tenant: jobs, streams, webhook receiver, feed loop, page, seed job. No dependency on billing
 │   └── conformance/                 # Runner and hand-written fixtures of the coverage matrix (make demo-test)
 ├── deploy/
 │   ├── compose/                     # Dependencies only, for the fast development loop
@@ -2901,4 +2908,4 @@ billing-system/
 └── docs/                            # This SDD and the doc set that follows
 ```
 
-`shared/kernel` is the only package every module may import, which is why changes to it get extra review. `demo-client/` holds the Demo Client System of section 11.7, used by the smoke suite and the demo, and the runner of section 11.8. A top-level `Makefile` holds `deps-up`, the `mini-*` targets and `demo-test`.
+`shared/kernel` is the only package every module may import, which is why changes to it get extra review. `demo-client/` holds the Demo tenant of section 11.7, used by the smoke suite and the demo, and the runner of section 11.8. A top-level `Makefile` holds `deps-up`, the `mini-*` targets and `demo-test`.
