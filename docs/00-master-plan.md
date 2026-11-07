@@ -94,7 +94,7 @@ The SDD's stages `S0`…`S8` map to phases in §4.1. They have no hyphen and are
 
 | Adjustment | Reason |
 | --- | --- |
-| Add Phase 0: specification and spikes, before S0 | The design has 103 open decisions, and 9 spikes decide schemas and contracts |
+| Add Phase 0: specification and spikes, before S0 | The design has 111 open decisions, and 9 spikes decide schemas and contracts. **The 9 spikes are deferred** (Owner, 2026-11-07): see §5, Phase 0 |
 | `billing.jobs.v1` and its consumer move from S2 to P2 | Expiry goes through Kafka (DR-99) |
 | Outbox writes begin at P2; the relay stays at P3 | Reservations must record events from their first commit (DR-99) |
 | Platform admin endpoints and manual adjustment move to P2 | Tests need accounts and funding (DR-99) |
@@ -105,6 +105,9 @@ The SDD's stages `S0`…`S8` map to phases in §4.1. They have no hyphen and are
 | New topics: `billing.audit.v1`, `usage.exceptions.v1` | Audit detail must not reach webhook subscribers, and `ingest` has no database (DR-83, DR-40, DR-53) |
 | New Poolers: `pool-ingest`, `pool-locator`, `pool-reconcile-rw` | Their paths are otherwise impossible (DR-18) |
 | New use cases UC-22…26 | Subscriptions, administration and operator work appear in the SDD with no use case (§3.4) |
+| **New requirements A, B and C (Owner, 2026-11-07):** (A) entitlement per pricing mode for each Client, per-mode rights for each Client user, revocation that only expires a Client's mode but cuts a user at once; (B) permission-based access by group, function and action as a bitmask, with no named roles; (C) the platform and each Client are two separate spaces, with separate users, permissions, endpoints and dashboards, addressed by host or by path, and the same email reusable across spaces. Adds FR-34…39, UC-27…32, DR-104…111, DOC-83…89, ADR-0026, 0027, FL-34…37, tasks P2-27…29, P4-10, P8-30…35 | The SDD has three fixed roles, one portal and no users that belong to a Client. Per the Owner there are no admin or staff roles, and the two spaces share code but not use cases. One rule set is needed before the admin endpoints of P2 are written (DR-104…111) |
+| Pricing modes become an enum on the plan (`pricing_mode`) | Entitlement needs something to check; rating still ignores it (DR-104) |
+| P2 grows from 5 to 6 weeks, P8 from 5 to 6 | P2: permission kernel, users, mode grants and spaces (P2-27…29) come before the first admin endpoints. P8: a Client dashboard of five screens and a platform users screen (P8-30…35) |
 | Resilience4j narrows to PSP calls; webhook breaker state is shared in a table | A per-process breaker cannot serve several replicas (DR-58) |
 
 ## 2. Working principles
@@ -178,6 +181,8 @@ docs/
 │   ├── observability.md                     # DOC-42
 │   ├── configuration-reference.md           # DOC-43
 │   ├── error-handling.md                    # DOC-44
+│   ├── access-control.md                    # DOC-83
+│   ├── spaces-and-routing.md                # DOC-84
 │   └── flows/
 │       ├── README.md                        # DOC-45
 │       ├── budget-control.md                # DOC-46
@@ -208,7 +213,13 @@ docs/
 │       ├── reconciliation.md                # DOC-68
 │       ├── tenants-and-limits.md            # DOC-69
 │       ├── client-systems.md                # DOC-70
-│       └── webhook-deliveries.md            # DOC-71
+│       ├── webhook-deliveries.md            # DOC-71
+│       ├── client-overview.md               # DOC-85 (Client dashboard)
+│       ├── client-users.md                  # DOC-86 (Client dashboard)
+│       ├── client-price-plans.md            # DOC-87 (Client dashboard)
+│       ├── client-catalog.md                # DOC-88 (Client dashboard)
+│       ├── client-resources.md              # DOC-89 (Client dashboard)
+│       └── platform-users.md                # DOC-90 (Platform dashboard)
 ├── 09-operations/
 │   ├── local-dev.md                         # DOC-72
 │   ├── deploy-mini.md                       # DOC-73
@@ -240,8 +251,8 @@ The Gate column is the phase that needs the document `Approved` before it starts
 | --- | --- | --- | --- |
 | DOC-01 | Vision and scope | Context and five real-world problems (SDD 1). Core problem and both invariant statements. Three vision layers. **Measurable goals**: the target table of SDD 2.1 tied to NFRs and EXPs. In scope, Later, Out of scope with reasons (SDD 2.3). Investment per module (SDD 2.2). Assumptions: Vietnam and VND first (DR-01), 10-year retention (DR-02), invoice not a tax document (DR-04). **What v1.0 promises and what gates real money** (DR-05). Constraints: 1–2 people, 8 vCPU and 16 GB machine. Cut order | P1 |
 | DOC-02 | Personas and journeys | `PS-1` Client System integrator, `PS-2` Customer finance user, `PS-3` Finance Admin, `PS-4` Operator/developer (runs mini, matrix, runbooks). Goals, pains, what each does not need. Journeys: `J-1` integrate a new Client from credentials to first settled job, `J-2` top up and read an invoice, `J-3` month-end review and refund approval, `J-4` respond to an invariant alert | P1 |
-| DOC-03 | Requirements | FR-01…33 split into `FR-xx.y` with Given/When/Then with real numbers (use the examples of SDD 7.2, 11.8), MoSCoW, verification. FR-24 restated per DR-33, FR-27 per DR-83, FR-19 extended per DR-69. NFR-01…20 with target, how measured (DR-100), tool, EXP. **FR → UC → F → design DOC matrix**. Design targets marked planned | P1 |
-| DOC-04 | Use cases | Overview diagram. Every UC of §3.4 per template A.2, including error flows with the exact `code` from SDD 17.3 and DR-28. Rule stated on every Client UC: it asks or reports, and Billing never acts on a resource | P1 |
+| DOC-03 | Requirements | FR-01…39 split into `FR-xx.y` with Given/When/Then with real numbers (use the examples of SDD 7.2, 11.8), MoSCoW, verification. FR-24 restated per DR-33, FR-27 per DR-83, FR-19 extended per DR-69. NFR-01…20 with target, how measured (DR-100), tool, EXP. FR-34…39 added (Owner, 2026-11-07), each with Given/When/Then at requirement level; the mechanism is in DOC-83 (DR-104…109). **FR → UC → F → design DOC matrix**. Design targets marked planned | P1 |
+| DOC-04 | Use cases | Overview diagram. Every UC of §3.4 (UC-01…32) per template A.2, including error flows with the exact `code` from SDD 17.3 and DR-28. Rule stated on every Client UC: it asks or reports, and Billing never acts on a resource. UC-27…32 state who may act (permission code and space) and what a revoke leaves behind | P1 |
 | DOC-05 | Feature catalog | Groups `F-LED`, `F-RES`, `F-IDP`, `F-EVT`, `F-PRC`, `F-USG`, `F-WHK`, `F-TEN`, `F-PAY`, `F-INV`, `F-REC`, `F-AUD`, `F-API`, `F-POR`, `F-OPS`, `F-DEMO`. Per feature: FR, UC, phase, MoSCoW, flag, dependencies, role, **cut step** from §4.3 | P1 |
 | DOC-06 | Glossary | Written **first**. Minimum terms: Client System, Tenant, Billing Account, Wallet, ledger account, Journal, Posting, Charge, memo hold, Reservation, hold, commit, late commit, release, extend, expiry, `balance`, `held`, `available`, `credit_limit`, standing, movement, Idempotency Guard, Idempotency-Key, business key, source key, Wallet Gate, outbox, relay, replication slot, event envelope, descriptive event, order scope, feed, cursor, Product, Meter, PricePlan, PricePlanVersion, PriceComponent, PriceAssignment, charge model (PER_UNIT, GRADUATED, VOLUME, PACKAGE, FLAT), pricing mode (six), rating, rating cursor, cumulative rating, watermark, freeze, lateness horizon, quarantine, tier repricing, rating credit, Billing Cycle, Subscription, proration, Invoice, statement, overdue, Payment, PSP, `FakePsp`, Refund, refund hold, reconciliation exception, digest, logical shard, physical shard, logical store, Shard Router, Tenant Locator, process role, RLS, PgBouncer, Pooler, mini profile, Demo Client, coverage matrix, cell, fixture, prepaid, postpaid, plus tools: CloudNativePG, Strimzi, Debezium, ClickHouse, `FINAL`, KEDA, jMolecules, Spring Modulith | P1 |
 
@@ -253,7 +264,7 @@ The Gate column is the phase that needs the document `Approved` before it starts
 | DOC-08 | Data flows | Sequence diagrams for: reserve and commit; expiry through Kafka; usage from ingest to charge; event from outbox to webhook and feed; payment to wallet credit; refund saga; account saga; cycle close. **Failure flows**: process killed mid-transaction, killed after commit before response, primary failover with slot (DR-37), Kafka down during reserve, ClickHouse down past the horizon (DR-51), worker killed during webhook call, lost PSP callback | P1 skeleton, final P3 |
 | DOC-09 | Messaging contracts | Topic table of SDD 8.3 plus DR-40 additions, DLQs, keys, partitions, retention, ACLs per role. Envelope and outbox mapping (DR-35). JSON Schema per event type and `api_version` rules (DR-39). **Visibility table** (DR-38). Job messages (DR-41). Usage event contract (DR-50). Headers, including `traceparent`. Compatibility rules. Descriptive-name rule and regex | P3 |
 | DOC-10 | Quality attributes | Per NFR: tactic → mechanism → where implemented → verification. Latency budget per hop for reserve (gateway, locator, gate, pricing, lock, commit with sync replication). **Capacity estimate**: rows and GB per day per table, at target and ×10, with real row sizes after S-02. Resources per role (DR-96), pool math (DR-18). The growth path of SDD 19.6. Quorum reading (DR-92) | P1 |
-| DOC-11 | Tech stack and versions | Pinned versions with license and reason, from S-01. Compatibility table from spikes S-01…06, S-09. Library choices: HTTP client (DR-59), PDF (DR-81), portal (DR-89). Named fallbacks. Update policy | P1 |
+| DOC-11 | Tech stack and versions | Pinned versions with license and reason, from S-01. Compatibility table from spikes S-01…06, S-09. Library choices: HTTP client (DR-59), PDF (DR-81), portal (DR-89, three front-ends per DR-111). Named fallbacks. Update policy | P1 |
 | DOC-12 | Code architecture | Layer table of SDD 5.1 plus `adapter.config` (DR-07). **Module map with allowed dependencies** (DR-08). Package layout with a complete example. DDD markers. CQRS rules. Which aggregates use which persistence (DR-09). Sealed results, not exceptions, for expected outcomes. Every rule of SDD 5.5 with its check, and additions from DR-07, DR-23, DR-26, DR-62, DR-63, DR-101. Review checklist. Shared code templates | P1 |
 | DOC-13 | ADR index | Table: ADR, title, status, gate, source | P1 |
 
@@ -283,20 +294,22 @@ The Gate column is the phase that needs the document `Approved` before it starts
 | ADR-0020 | Demo Client outside Billing, on the public contract only | SDD 11.7 | P9 |
 | ADR-0021 | Coverage matrix with hand-written fixtures and compressed cycles; no fake clock | SDD 11.8 | P9 |
 | ADR-0022 | Invoices are tax-inclusive with no ledger effect | DR-03 | P7 |
-| ADR-0023 | Keycloak and the token claim contract | SDD 22.2, DR-64 | P1 |
+| ADR-0023 | Keycloak and the token claim contract (including `billing_client_id` for Client user) | SDD 22.2, DR-64, DR-107 | P1 |
 | ADR-0024 | Persisted payment state machine and credit by event | SDD 13.1, DR-70, DR-71 | P6 |
 | ADR-0025 | Audit log scope and its own topic | SDD 15.2, DR-83 | P2 |
+| ADR-0026 | Permission bitmask by group, function and action in two catalogs; pricing-mode entitlement that expires without touching resources; user revoke with resource hand-over | DR-104…106, DR-108, DR-109 | P2 |
+| ADR-0027 | Platform and each Client are separate spaces: a realm per space, host and path addressing, three front-ends | DR-107, DR-110, DR-111 | P2 |
 
 #### Data
 
 | DOC | Document | Required content | Gate |
 | --- | --- | --- | --- |
 | DOC-14 | Ledger model | Mermaid ERD. **Complete runnable DDL, tried on PostgreSQL 18 through PgBouncer**, for `billing_account`, `wallet`, `ledger_account`, `reservation`, `reservation_archive`, `charge`, `journal`, `posting`, `wallet_movement`, `wallet_checkpoint`, `daily_rollup`, `adjustment`, `idempotency_key`, `outbox`, `debezium_heartbeat`. Partitions (DR-13), `logical_shard`, indexes with reasons, every constraint of SDD 16.2 as amended (DR-27, 30). Journal templates (SDD 6.1, DR-19, DR-74). Ledger account IDs (DR-20). **State diagrams** for `Reservation` including refund holds (DR-30) and `adjustment`. Movement kinds (DR-21). Sample statements for each step of SDD 6.3 | P1 |
-| DOC-15 | Ops model | DDL per schema. `platform`: `tenant`, `tenant_billing_profile`, `client_system`, `client_product`, `client_grant`, `client_inbound_secret`, `account_directory`, `shard_map`, ShedLock. `pricing`: tables of DR-44. `metering`: `rating_cursor` (DR-52), `usage_quarantine`, `usage_rejection`. `invoicing`: `account_settings`, `subscription`, `subscription_change`, `billing_cycle`, `invoice`, `invoice_line`, `invoice_charge`, `invoice_counter`. `payment`: `payment` with `captured_amount`, `refund`, `psp_event`. `reconciliation`: `run`, `exception`, `fee_rule`. `audit`: `log`. One `idempotency_key` and `outbox` per schema. **State diagrams**: plan version, subscription (DR-77), invoice, payment (DR-71), refund (DR-72), exception. RLS policy per table and **the three exempt tables** (DR-63) | P1 skeleton (`platform`), P4 (`pricing`), P5 (`metering`), P6 (`payment`), P7 (`invoicing`), P8 (rest) |
+| DOC-15 | Ops model | DDL per schema. `platform`: `tenant`, `tenant_billing_profile`, `client_system`, `client_product`, `client_grant`, `client_inbound_secret`, `platform_user`, `client_user`, `account_directory`, `shard_map`, ShedLock. `pricing`: tables of DR-44, with `pricing_mode` and `managed_by` (DR-104, DR-108); `managed_by` also on `client_product` and `meter`. `metering`: `rating_cursor` (DR-52), `usage_quarantine`, `usage_rejection`. `invoicing`: `account_settings`, `subscription`, `subscription_change`, `billing_cycle`, `invoice`, `invoice_line`, `invoice_charge`, `invoice_counter`. `payment`: `payment` with `captured_amount`, `refund`, `psp_event`. `reconciliation`: `run`, `exception`, `fee_rule`. `audit`: `log`. One `idempotency_key` and `outbox` per schema. **State diagrams**: plan version, subscription (DR-77), invoice, payment (DR-71), refund (DR-72), exception. RLS policy per table and **the three exempt tables** (DR-63) and why `client_pricing_mode`, `platform_user` and `client_user` need none (no `tenant_id`). Exclusion constraint on mode periods (needs `btree_gist`) | P1 skeleton (`platform`; `client_pricing_mode`, `platform_user` and `client_user` of DR-105 and DR-107 are added at the P2 gate, with DOC-83), P4 (`pricing`), P5 (`metering`), P6 (`payment`), P7 (`invoicing`), P8 (rest) |
 | DOC-16 | Delivery model | DDL for `webhook.subscription`, `secret`, `delivery`, `attempt`, `event_log`, `endpoint_state`, `idempotency_key`, `outbox`, per DR-56, DR-58, DR-60. Delivery state diagram with all rows of SDD 11.3. Index reasons, claim SQL | P3 |
 | DOC-17 | Usage store | ClickHouse DDL for `usage.event`, `event_hourly` and its view (DR-55). Query catalog: rating per aggregation (DR-46), `DISTINCT account_id`. `dimension_key` rule. TTL. Users. Why plain `SELECT` is unsafe for money. Timing from S-05 | P5 |
 | DOC-18 | Data quality rules | `DQ-xx`: usage validation at ingest (all rejection codes of DR-50, with severity and action). Invariant catalog: every check of SDD 19.4 as `DQ-xx` with SQL in `deploy/sql/invariants/`, schedule, checkpoints (DR-24), recheck-on-primary rule. Duplicate `event_id` with changed `occurred_at` monitor (SDD 22.1) | P2, usage rules P5 |
-| DOC-19 | DB roles and grants | Role × table × privilege matrix down to columns (DR-17), per database. **`billing_locator` column grants** (DR-62). Which app, pool and Pooler use which role (DR-18). Migration user. Secret provisioning. ClickHouse users, Kafka users. **Permission test matrix**: each forbidden action has a test | P1 |
+| DOC-19 | DB roles and grants | Role × table × privilege matrix down to columns (DR-17), per database. **`billing_locator` column grants** (DR-62). Which app, pool and Pooler use which role (DR-18). Migration user. Secret provisioning. ClickHouse users, Kafka users. **Permission test matrix**: each forbidden action has a test. Rows for `platform.client_pricing_mode`, `platform.platform_user` and `platform.client_user` (DR-105, DR-107) are added at the P2 gate: `UPDATE` only on the three expiry columns of the first | P1 |
 | DOC-20 | Data lifecycle | Retention per object (DR-97). `PartitionMaintenance` families and rules (DR-16). `reservation_archive` move. Tablespaces. Personal data inventory and treatment (DR-98). Object lock | P1 skeleton, final P8 |
 
 #### Design
@@ -310,8 +323,8 @@ The common skeleton of this group (template B.1): Purpose and scope → Componen
 | DOC-23 | Idempotency | Guard code path. Table per module and `caller` (DR-32). Hash, stored statuses, endpoint table (DR-33). Lock order and `lock_timeout` first (DR-34). Case table of SDD 8.1. Business-state second layer. Cleanup. Module exceptions (PSP flows use state machines). Commit-storm expected results | P2 |
 | DOC-24 | Outbox and relay | Writer in `eventing`. Outbox DDL mapping (DR-35). Connector config per database (DR-36). Publication via Flyway. Heartbeats. Failover slots and **lost-slot procedure** (DR-37). Relay failure behavior from SDD 19.3, WAL limits. Consumer dedupe obligations. Polling baseline for EXP-07. Results of S-03 | P2, relay final P3 |
 | DOC-25 | Shard routing | Hash and vectors (DR-12). Public ID codec. Shard map loading, refresh and last-good behavior (DR-14). `UnitOfWork` and `TxScope`. Per-store and per-shard data sources. ArchUnit rule. Costs of sharding (SDD 19.6). **Shard move mechanism**, fencing and failure handling (DR-15) | P1 |
-| DOC-26 | Multi-tenancy | Two axes (tenant, Client). Token → tenant derivation per actor (SDD 12.1). All five layers (SDD 12.3). **Tenant Locator sequence** (DR-62). Exempt tables (DR-63). Grant check cache and revocation time. Finance Admin naming, queues (DR-65). `billing_system` limits. Kafka and ClickHouse tenancy. Noisy-neighbor table (SDD 12.4, DR-67). Event visibility as it touches tenancy (DR-38) | P1 |
-| DOC-27 | Pricing Engine | Model tables (SDD 9.1). `RatingFunction` for five models with `unit_quantity` and exact arithmetic (DR-44). **Input → expected output test table per model**, including tier edges. Parameter scope (DR-29). Laws per model (DR-45). Plan resolution (DR-47). Estimate flow and caches. Draft preview. Version states, publish validation, retirement (DR-48). Meter names (DR-43). What is not offered (SDD 9.5). Six modes expressed as data, with one JSON each | P4 |
+| DOC-26 | Multi-tenancy | Two axes (tenant, Client). Token → tenant derivation per actor (SDD 12.1). All five layers (SDD 12.3). **Tenant Locator sequence** (DR-62). Exempt tables (DR-63). Grant check cache and revocation time. Finance Admin naming, queues (DR-65). `billing_system` limits. Kafka and ClickHouse tenancy. Noisy-neighbor table (SDD 12.4, DR-67). Event visibility as it touches tenancy (DR-38). **Users are outside tenancy**: they act on a Client's catalog and people, never on a tenant's money (DR-109). Detail of staff rows and revocation timing is in DOC-83 (P2) | P1 |
+| DOC-27 | Pricing Engine | Model tables (SDD 9.1). `RatingFunction` for five models with `unit_quantity` and exact arithmetic (DR-44). **Input → expected output test table per model**, including tier edges. Parameter scope (DR-29). Laws per model (DR-45). Plan resolution (DR-47). Estimate flow and caches. Draft preview. Version states, publish validation, retirement (DR-48). Meter names (DR-43). What is not offered (SDD 9.5). Six modes expressed as data, with one JSON each. **Mode label and publish checks** (DR-104); mode entitlement at create and publish (DR-105); managers on plans (DR-108) | P4 |
 | DOC-28 | Usage Ingestion | One `IngestUsage` handler, channels (SDD 11.1, DR-50). Reference snapshot (DR-49). Validation order. Kafka signature, rejections path. Late routing (DR-53). Writer batching and token (DR-55). Reservation-linked usage rule (SDD 10.5). Rate limit by events (DR-67). Throughput math | P5 |
 | DOC-29 | Usage Rating | Formula and algorithm (SDD 10.3). Cursor lifecycle (DR-52). Crash points with expected result at each. Aggregations and components (DR-46). **Freeze rule and proof** (DR-51). Tier repricing and corrections (DR-45). Trigger query (DR-54). Sanity pause. Cross-cycle events. Exposure statement. Test table with crash and duplicate cases | P5 |
 | DOC-30 | Webhook Dispatcher | Subscriber and worker split. Subscription model. Visibility match (DR-38). Claim SQL with blocked set (DR-58). State machine. Retry schedule. Signature and vectors (SDD 11.4). Secrets (DR-60). Endpoint isolation. HTTP client and blocked ranges (DR-59). Allow-list rule. Headers, loop guard, auto-disable (DR-61). Version downgrading (DR-39). Throughput math | P3 |
@@ -322,10 +335,10 @@ The common skeleton of this group (template B.1): Purpose and scope → Componen
 | DOC-35 | Audit and digests | Audit scope table (DR-83), event shape, consumer, "explain" union query. Digest form, chain per logical shard, manifest, verification schedule (DR-84). What a shard move does to chains. Object lock. Explainability path, from balance to rating snapshot, with one worked example | P2 |
 | DOC-36 | ERP export | Batch layout, columns, manifest, sequence and control totals (DR-86). Mapping of `customer_wallet` to receivable and credit (SDD 6.4). `ErpExporter`. How the legal e-invoice flow uses it (DR-04) | P8 |
 | DOC-37 | Scheduler and jobs | Full job catalog (DR-85). ShedLock use. Job message and topic routing (DR-41). Sweep drain loop. Job timings per environment (SDD 19.8). `PartitionMaintenance`. Why a duplicate fire is harmless, per job | P2 |
-| DOC-38 | API Gateway | Routes by path to role, including `/v1/usage`, `/v1/inbound/*`, `/v1/psp/*/callback`, which paths need no token. JWT validation. Bucket4j by route (DR-67). CORS. Header handling, `traceparent`. No business logic rule. Graceful shutdown | P2 |
+| DOC-38 | API Gateway | Routes by path to role, including `/v1/usage`, `/v1/inbound/*`, `/v1/psp/*/callback`, which paths need no token. JWT validation. Bucket4j by route (DR-67). CORS from the enabled address forms of each space (DR-110). **Space door**: issuer → space map and `403 wrong_space` (DR-107). Header handling, `traceparent`. No business logic rule. Graceful shutdown | P2 |
 | DOC-39 | Demo Client | Every table of SDD 11.7: services, boundaries, job lifecycle, keys, reaction policy, fault switches, parameters. Meter names (DR-43). Plans as products (DR-47). Seed job with natural keys (DR-87). `/demo/*` API. Pending-call loop. Secret handling. Staging reachability (DR-102). Page behavior | P9 |
-| DOC-40 | Coverage matrix | The 12 cells with fixtures, pass conditions (with DR-45 net wording, DR-34 final outcomes), scenarios, time compression, runner, cleanup and sweep on staging, **what this does not prove**. Enum-coverage test. Sabotage runs. Fixture format (DR-102) | P9 |
-| DOC-41 | Security | Authn and authz. **Endpoint × role matrix** (DR-66). Rate limits (DR-67). CORS and CSP. Secrets per environment, rotation (DR-60, DR-68). TLS map (DR-68). SSRF (DR-59). Dual control (DR-69). PSP callback verification. Personal data (DR-98). Lightweight STRIDE per trust boundary. CI scanning (DR-95). MFA | P2 |
+| DOC-40 | Coverage matrix | The 12 cells with fixtures, pass conditions (with DR-45 net wording, DR-34 final outcomes), scenarios, time compression, runner, cleanup and sweep on staging, **what this does not prove**. Enum-coverage test. Sabotage runs. Fixture format (DR-102). One added scenario, "Mode expiry and user revoke" (DR-105, DR-108): after the Client's mode expires, a new plan and a publish are refused while an open reservation commits, a running subscription is invoiced and old plans rate; a revoked user is refused on the next call while their plans keep billing. The enum-coverage test also reads `pricing_mode` (DR-104) | P9 |
+| DOC-41 | Security | Authn and authz. **Endpoint × role matrix** (DR-66). Rate limits (DR-67). CORS and CSP. Secrets per environment, rotation (DR-60, DR-68). TLS map (DR-68). SSRF (DR-59). Dual control (DR-69). PSP callback verification. Personal data (DR-98). Lightweight STRIDE per trust boundary. CI scanning (DR-95). MFA: every platform user, and any Client user holding an `access.*` bit (DR-107). **Space separation** (DR-107, DR-110). **Permission-based authorization**: summary and pointer to DOC-83; the endpoint × role matrix of DR-66 as amended by DR-109, with the permission code of every operation | P2 |
 | DOC-42 | Observability | **Metric catalog** with name, type, labels, role. Required log fields and what is forbidden. Spans and propagation through the outbox header (DR-35). Dashboards: money flow, integration health per Client, webhook state. **All alerts of SDD 19.2 plus DR-16, DR-46, DR-54, DR-85 in real PromQL**, linked to `RB-xx`. Channels. SLI and burn rates (DR-94) | P1 skeleton, each phase adds |
 | DOC-43 | Configuration reference | Per role: key, type, default, environment variable, profile, description. Timings and floors per environment from SDD 19.8. All parameters of SDD 6.5, 7.2, 9.3, 10.4, 11.5, 11.7, 12.4, 19.7 and every DR value. Build tests on rendered values | P1 skeleton, each phase adds |
 | DOC-44 | Error handling | Error classes (expected result, transient, fatal). Sealed result → HTTP status → `code` table (SDD 17.3 plus DR-27, 28, 69, 71, 73, 74, 80). Kafka error handling (DR-40). Retries. Logging rules | P1 |
@@ -367,6 +380,10 @@ The common skeleton of this group (template B.1): Purpose and scope → Componen
 | FL-31 | Operator runs the coverage matrix | UC-24 | DOC-51 | P9 |
 | FL-32 | Operator moves a logical shard | UC-25 | DOC-51 | P8 |
 | FL-33 | System runs invariant checks and digests | UC-26 | DOC-51 | P2, digests P8 |
+| FL-34 | A platform user grants a pricing mode to a Client, and later expires it | UC-27 | DOC-51 | P2 |
+| FL-35 | A user creates another user in their own space and sets their permissions and modes, within the no-escalation rule | UC-28, UC-31 | DOC-51 | P2 (platform side), P4 (console) |
+| FL-36 | A Client user revokes another Client user and reassigns the resources they managed | UC-29, UC-30 | DOC-51 | P4 |
+| FL-37 | A user signs in to their own space by host or by path, including a wrong-space attempt | UC-32 | DOC-51 | P2 (door), P8 (dashboards) |
 
 | DOC | Document | Required content | Gate |
 | --- | --- | --- | --- |
@@ -376,14 +393,14 @@ The common skeleton of this group (template B.1): Purpose and scope → Componen
 | DOC-48 | Flows: integration | FL-12…15 | Per table above |
 | DOC-49 | Flows: payments and refunds | FL-16…21 | Per table above |
 | DOC-50 | Flows: invoicing | FL-22…24 | Per table above |
-| DOC-51 | Flows: administration and operations | FL-25…33 | Per table above |
+| DOC-51 | Flows: administration and operations | FL-25…37 | Per table above |
 
 #### API
 
 | DOC | Document | Required content | Gate |
 | --- | --- | --- | --- |
 | DOC-52 | API guidelines | All of SDD 17.3 and DR-88. Versioning, `api_version` (DR-39). IDs (DR-12), meters (DR-43). Idempotency table (DR-33). OpenAPI pipeline (DR-10) | P1 |
-| DOC-53 | API endpoints | One `E-xx` per endpoint of SDD 17.1 **and DR-87**, per template A.4: authorization (DR-66), parameters, a complete JSON example, every error `code`, data source with table and index, read mode (primary or replica, SDD 5.3), cache, performance target | P2 for reservation, account, charge, platform; each phase adds its group |
+| DOC-53 | API endpoints | One `E-xx` per endpoint of SDD 17.1 **and DR-87**, per template A.4: authorization (DR-66), parameters, a complete JSON example, every error `code`, data source with table and index, read mode (primary or replica, SDD 5.3), cache, performance target. Every `/v1/admin/*` and `/v1/console/*` operation carries `x-permission` (DR-109), and DR-104…109 endpoints and error codes | P2 for reservation, account, charge, platform, access; each phase adds its group |
 | DOC-54 | Webhook events | One complete JSON per event type (DR-42), visibility (DR-38), headers (DR-61), signature vectors in at least two languages, how to verify, how to dedupe | P3 |
 | DOC-55 | Client integration guide | Added document; SDD 10.5 refers to it. How to integrate from credentials to first settled job: estimate, reserve, commit, retries (`Idempotency-Key`, `503`, `Retry-After`), `reservation_id` rule on usage, `occurred_at` immutable, order scope, feed as truth, deciding about Billing being unreachable. No policy prescribed | P3, final P9 |
 
@@ -393,10 +410,10 @@ Each screen follows template A.5 and has an acceptance section with E2E test IDs
 
 | DOC | Document | Required content | Gate |
 | --- | --- | --- | --- |
-| DOC-56 | UX principles and IA | Numbered principles, sitemap by role, URL map with search params, responsive rules (SDD 18.2), account selector (DR-90), performance budget | P8 |
+| DOC-56 | UX principles and IA | Numbered principles, **three front-ends and their separation** (DR-111), sitemap by space, URL map in both host and path form (DR-110), URL map with search params, responsive rules (SDD 18.2), account selector (DR-90), performance budget | P8 |
 | DOC-57 | Design system | Tokens, components from DR-89, money and quantity display, colors for standing and every status, WCAG 2.2 AA criteria | P8 |
 | DOC-58 | UI states and copy | Loading, empty, error (with `trace_id`), stale, forbidden patterns. **All microcopy** in English through i18next keys. "Confirming payment" rules. Number and time formats through `Intl` | P8 |
-| DOC-59 | Screens index | Screen, role, DOC, endpoints, UCs | P8 |
+| DOC-59 | Screens index | Screen, front-end (platform dashboard, Client dashboard, Customer portal), required permission, DOC, endpoints, UCs | P8 |
 | DOC-60 | Screen: Account overview | Balance, held, available, standing, active holds (including "Refund pending"), per-Client spending, 10 s refetch. E2E | P8 |
 | DOC-61 | Screen: Top up and payment result | Amount, method, redirect, polling; never trusts the return URL. Postpaid behavior (DR-73) | P8 |
 | DOC-62 | Screen: Transactions | History and movements with filters, past-time balance query, link to charge explanation | P8 |
@@ -407,17 +424,23 @@ Each screen follows template A.5 and has an acceptance section with E2E test IDs
 | DOC-67 | Screen: Refund approvals | Queue (DR-65), payment and wallet context, second approver flow (DR-69) | P8 |
 | DOC-68 | Screen: Reconciliation | Runs, exceptions, resolve with reason, adjustment with dual control | P8 |
 | DOC-69 | Screen: Tenants and limits | Tenants, accounts, mode, limits, settings, billing profile, quarantined usage with resolve (DR-53) | P8 |
-| DOC-70 | Screen: Client Systems and grants | Added (DR-90): register, parameters, products and meters, grants, inbound secret | P8 |
+| DOC-70 | Screen: Client Systems and grants | Added (DR-90): register, parameters, products and meters, grants, inbound secret; **pricing modes (grant, expire), Client users and the Client's realm** (DR-107, DR-109) | P8 |
 | DOC-71 | Screen: Webhook deliveries | Attempts per delivery, dead list, redeliver | P8 |
+| DOC-85 | Screen (Client dashboard): Overview | Own Client's pricing modes with expiry, user count, resources needing a manager. Banner when a mode has expired. No tenant or money data | P8 |
+| DOC-86 | Screen (Client dashboard): Users and permissions | List, create, deactivate, permission editor by group, function and action (wildcards expand on save), pricing modes per user within the Client's active modes. No-escalation messages (DR-106) | P8 |
+| DOC-87 | Screen (Client dashboard): Price plans | Draft editor per model through `packages/pricing-editor`, tier preview, publish with `effective_from`, version history; extending actions disabled on an expired mode; manager shown | P8 |
+| DOC-88 | Screen (Client dashboard): Products and meters | Create and edit within the Client's namespace (DR-43); manager shown | P8 |
+| DOC-89 | Screen (Client dashboard): Resources and reassignment | Resources by manager, "needs a manager" list, bulk reassign with the assignee checks of DR-108 | P8 |
+| DOC-90 | Screen (Platform dashboard): Platform users and permissions | List, create, deactivate, permission editor of the platform catalog, bootstrap note | P8 |
 
 #### Operations
 
 | DOC | Document | Required content | Gate |
 | --- | --- | --- | --- |
-| DOC-72 | Local development | Machine requirements. Tools with versions. `make` targets: `deps-up`, `mini-up`, `mini-test`, `demo-test`, `mini-down`. Fast loop with `billing.role=all`. Port table. Seeded Keycloak accounts. Reset data. Common problems | P1 |
-| DOC-73 | Deploy: mini | k3d definition, install order through helmfile, values of `values-mini.yaml`, all Poolers, 4 Debezium connectors, resources from S-06 (DR-96), job timings, allow-list rule, health checks, teardown, EXP-17 steps | P1 |
-| DOC-74 | Deploy: staging | Differences from mini per SDD 19.8, sync standby, PSP sandbox plus `FakePsp`, cost cap and stop procedure (DR-91), secret paths, temporary scale-up with `values-prod.yaml` for EXPs, Demo Client DNS (DR-102) | P8 |
-| DOC-75 | Deploy: production | Component table of SDD 19.1 with final sizes. Node pools, zones, PodDisruptionBudgets, NetworkPolicies, HPA and KEDA rules, `preStop`, Flyway expand and contract, rollout order (`webhook-delivery`, `worker` before `api`), quorum settings (DR-92), go-live gate (DR-05) | P8 |
+| DOC-72 | Local development | Machine requirements. Tools with versions. `make` targets: `deps-up`, `mini-up`, `mini-test`, `demo-test`, `mini-down`. Fast loop with `billing.role=all`. Port table. Seeded Keycloak accounts: one realm per space, the same email in two realms (DR-107). Path-mode addresses on `localhost` (DR-110). Reset data. Common problems | P1 |
+| DOC-73 | Deploy: mini | k3d definition, install order through helmfile, values of `values-mini.yaml`, all Poolers, 4 Debezium connectors, resources from S-06 (DR-96), job timings, allow-list rule, health checks, teardown, EXP-17 steps. `billing.routing.mode=PATH` on mini (DR-110) | P1 |
+| DOC-74 | Deploy: staging | Differences from mini per SDD 19.8, sync standby, PSP sandbox plus `FakePsp`, cost cap and stop procedure (DR-91), secret paths, temporary scale-up with `values-prod.yaml` for EXPs, Demo Client DNS (DR-102). Wildcard DNS and certificate for `HOST` mode, and the `PATH` fallback (DR-110) | P8 |
+| DOC-75 | Deploy: production | Component table of SDD 19.1 with final sizes. Node pools, zones, PodDisruptionBudgets, NetworkPolicies, HPA and KEDA rules, `preStop`, Flyway expand and contract, rollout order (`webhook-delivery`, `worker` before `api`), quorum settings (DR-92), go-live gate (DR-05). Wildcard certificate by DNS-01 and `billing.routing.mode=HOST` (DR-110) | P8 |
 | DOC-76 | CI/CD | Workflows and triggers (DR-95), merge-blocking checks, k3d job, oasdiff, scans, signing, image tags, caching, smoke, what runs from P9 | P1 |
 | DOC-77 | Backup and restore | Table of DR-93, step-by-step restore per store, PITR follow-up including relay replay, drill schedule, how each drill is verified, measured times | P8 |
 | DOC-78 | Scaling playbook | Added. Unit and limit table, move order with triggers (SDD 19.6), each move as steps: Delivery DB, Ops DB, logical shard (DR-15), add ClickHouse shard. What is deliberately not added | P8 |
@@ -454,6 +477,8 @@ Each screen follows template A.5 and has an acceptance section with E2E test IDs
 | DOC-80 | Test strategy | All types of SDD 20.1. Module × test level. Tools, with the version answers from S-01. Naming, fixtures. Coverage targets: `ledger`, `pricing` line ≥ 90%, others ≥ 80%. Fault injection and barrier patterns. `experiment` source set (DR-101). CI stage per test type. **Index of every document's test-ID prefix** | P1 |
 | DOC-81 | Experiments index | Common protocol: environment, 3 runs, median, data seed, overrides, what counts as measured (DR-100). Baselines (DR-101). Result recording. Table below, one file each per template A.6 | P1 for README |
 | DOC-82 | Demo script | The 9 steps of SDD 21 with narration, action, expected numbers, fallback, pre-demo checklist, reset, staging differences | P9 |
+| DOC-83 | Access control | Added (2026-11-07). **Concepts:** space, platform user, Client user, machine Client, mode entitlement, permission, manager; no roles. **Two catalogs:** every group, function, action with its bit number in the platform and in the Client catalog, the two `*-permission-catalog.lock` files (DR-106). **Bit layout:** 256 bits per catalog, `bit(256)` ↔ `long[4]`, conversion test; mode bits (DR-104). **Evaluation:** the space door, then the `allowed` function with worked examples, one per denial code (`wrong_space`, `permission_denied`, `pricing_mode_not_granted`, `not_resource_manager`, `grant_exceeds_own_permissions`, `cannot_edit_self`). **Tables:** DDL of `client_pricing_mode`, `platform_user`, `client_user` and the managers columns (DR-105, 107, 108), with email uniqueness among `ACTIVE` rows per space. **Rules:** extending vs wind-down actions; wildcard expansion at write; no-escalation; why checks are uncached. **State diagrams:** pricing-mode period, user. **Revocation:** Client mode expiry versus user deactivation, with a table of what each leaves intact; resources needing a manager; reassignment. **Endpoint × permission table** (generated from `x-permission`). **Required tests `ACL-xx`:** lock files, round-trip, wildcard, escalation, mode × bit × active/expired matrix, immediate revocation, resource survival, space crossing | P2 skeleton (kernel, users, modes, spaces), P4 final (managers, console) |
+| DOC-84 | Spaces and routing | Added (2026-11-07). **Spaces** and their addresses by host and by path (DR-110). `billing.routing.mode`. One build for both, `<base href>` and `/config.js` per request. **URL never grants access:** space from issuer only. Client `code` rules and reserved list. Realms per space and the provisioning saga step (`billing-realm-provisioner`), OIDC redirect registration and re-registration, CORS table, ingress rules, wildcard certificate. Path-mode shared-origin caveat. **Sequence diagrams:** sign in by host, sign in by path, wrong-space token. **Required tests `SPC-xx`:** same email in platform and two Clients; wrong-space; reserved codes; both modes pass the same Playwright suite | P2 skeleton (realms, issuer map, door), P8 final (dashboards, ingress) |
 
 | EXP | Experiment | Proves | Provisional or staged | Gate |
 | --- | --- | --- | --- | --- |
@@ -468,13 +493,13 @@ Each screen follows template A.5 and has an acceptance section with E2E test IDs
 | EXP-09 | Cumulative rating precision | NFR-13 | | P5 |
 | EXP-10 | Webhook delivery under failure | NFR-08 | | P3 |
 | EXP-11 | Endpoint isolation | NFR-09 | | P3 |
-| EXP-12 | Tenant isolation and RLS cost | NFR-10 | Reruns as tables are added; covers the Tenant Locator | P2 |
+| EXP-12 | Tenant isolation and RLS cost | NFR-10 | Reruns as tables are added; covers the Tenant Locator; also asserts that Client user reach no tenant data (DR-109) | P2 |
 | EXP-13 | Reconciliation and tamper detection | NFR-14, NFR-16 | | P8 |
 | EXP-14 | Primary failover | NFR-11, NFR-12 | Adds relay resume (DR-37) | P8 |
 | EXP-15 | Architecture conformance | NFR-15 | Rules added per phase | P1 |
 | EXP-16 | Shard move rehearsal | NFR-18 | | P8 |
 | EXP-17 | Mini profile | NFR-19 | Staged P1–P3 (DR-99), and Demo Client from P9 | P1 |
-| EXP-18 | Billing-type coverage | NFR-20 | | P9 |
+| EXP-18 | Billing-type coverage | NFR-20 | Adds the scenario "Mode expiry and user revoke" (DR-105, DR-108) and the `pricing_mode` enum-coverage rule (DR-104) | P9 |
 
 ### 3.3 Definition of "Approved" for a document
 
@@ -516,6 +541,12 @@ A document is `Approved` when all five hold:
 | UC-24 | Run the coverage matrix (added) | Operator | FR-32, FR-33 |
 | UC-25 | Move a logical shard (added) | Operator | NFR-18 |
 | UC-26 | Run invariant checks, digests and exports (added) | System | FR-27, FR-28, FR-31, NFR-16 |
+| UC-27 | Grant and expire a Client's pricing modes (added) | Platform user | FR-34, FR-37 |
+| UC-28 | Create a Client user and set their permissions and pricing modes (added) | Client user with `access.user.*`, or platform user with `users.client_user.*` | FR-35, FR-36, FR-38 |
+| UC-29 | Revoke a Client user and reassign their resources (added) | Client user with `access.*`, or platform user with `users.client_resource.reassign` | FR-35, FR-37 |
+| UC-30 | Manage plans, assignments, products and meters within granted permissions and modes (added) | User | FR-02, FR-35, FR-36 |
+| UC-31 | Create platform users and set their permissions (added) | Platform user with `users.platform_user.*` | FR-36, FR-38 |
+| UC-32 | Sign in to the dashboard of one's own space by host or by path (added) | Any user | FR-38, FR-39 |
 
 ## 4. Roadmap
 
@@ -525,19 +556,19 @@ The phases keep the stages of original SDD §21, adding Phase 0. Numbers are for
 
 | Phase | SDD stage | Name | Estimate (1 person, full time) | Milestone |
 | --- | --- | --- | --- | --- |
-| P0 | New | Specification and spikes | 3 weeks | M0: every P1-gated document `Approved`; every P1-blocking spike concluded |
+| P0 | New | Specification (spikes deferred) | 3 weeks, less the spike time; recalibrate at M0 | M0: every P1-gated document `Approved`; every P1-blocking and P2-blocking DR decided. Spikes S-01…S-09 are deferred and do not block M0 |
 | P1 | S0 | Foundation and rules | 3 weeks | M1: `make mini-up` works from clean in ≤ 15 minutes; empty modules build; every injected rule violation fails the build |
-| P2 | S1 | Ledger and Reservation | 5 weeks | M2: reservation API with a fixed price survives contention and kills with 0 invariant violations |
+| P2 | S1 | Ledger and Reservation | 6 weeks | M2: reservation API with a fixed price survives contention and kills with 0 invariant violations |
 | P3 | S2 | Outbox, webhooks and feed | 4 weeks | M3: events reach a WireMock endpoint in order with 0 lost under worker kills; the feed recovers an outage |
 | P4 | S3 | Pricing and estimates | 3 weeks | M4: real prices on reservations; all five charge models pass their property tests |
 | P5 | S4 | Usage Metering | 4 weeks | M5: streaming charges are exact under 10% duplicates at 5,000 events per second |
 | P6 | S5 | Payment and Refund | 4 weeks | M6: top-up and refund work through `FakePsp` and one real PSP sandbox, surviving scripted failures |
 | P7 | S6 | Invoicing and Subscription | 3 weeks | M7: invoices are correct for both account modes, including proration and a close race |
-| P8 | S7 | Portal, Reconciliation and hardening | 5 weeks | M8: main system complete on staging; load, failover, tamper and shard-move results recorded |
+| P8 | S7 | Portal, Reconciliation and hardening | 6 weeks | M8: main system complete on staging; load, failover, tamper and shard-move results recorded |
 | P9 | S8 | Demo Client and coverage matrix | 4 weeks | M9: 12 of 12 cells pass; demo script runs; `v1.0.0` tagged |
-| **Total** | | | **38 weeks** | |
+| **Total** | | | **40 weeks** | |
 
-The original SDD's durations assume 1–2 developers. For one person, plan a factor of 1.3 (about 50 weeks), because writing the later phases' documents runs alongside the phase before and is not listed separately. Part-time at half hours doubles that. These are planned numbers.
+The original SDD's durations assume 1–2 developers. For one person, plan a factor of 1.3 (about 52 weeks), because writing the later phases' documents runs alongside the phase before and is not listed separately. Part-time at half hours doubles that. These are planned numbers.
 
 ### 4.2 Phase dependencies
 
@@ -576,6 +607,26 @@ Goal: every decision and experiment that fixes schemas and contracts is settled,
 
 **Spikes.** A spike is at most 2 days, and leaves a note in `spikes/S-xx/` with evidence.
 
+> **All nine spikes are deferred** (Owner, 2026-11-07). Nothing below is dropped: the IDs, questions, pass conditions and fallbacks stay valid for when a spike runs.
+>
+> Rules while deferred:
+> 1. P0-02…P0-10 have status `Deferred`. They do not gate P0-13, P0-14 or M0.
+> 2. A document that says "from S-xx" or "results of S-xx" is written from the proposed value of the linked DR. Each such value carries the tag `unverified (S-xx)` so it can be found by search. No number is invented to replace a measurement; write "not measured" instead.
+> 3. A DR marked 🔬 keeps its proposed decision. The Owner may decide it now; the spike then confirms it later.
+> 4. Each spike must run before the task named in the table below. If it fails, use its fallback or open a new DR, and revise the documents tagged `unverified (S-xx)`.
+
+| S | Must run before | Why that point |
+| --- | --- | --- |
+| S-01 | P1-01 | The Gradle build is the first use of the whole toolchain; its result sets DOC-11 versions |
+| S-04 | P1-11 | The 9 Poolers and CloudNativePG are installed here |
+| S-06 | P1-11 | `make mini-up` ≤ 15 minutes on 8 vCPU and 16 GB is the M1 criterion |
+| S-02 | P2-02 | First ledger migrations: partitions, RLS and the `posting` trigger |
+| S-03 | P3-01 | Publications, connectors and failover slots |
+| S-09 | P3-10 | The SSRF client |
+| S-05 | P5-01 | ClickHouse schema and rating query |
+| S-07 | P6-00 (DR-70 decided) | The first real PSP; `FakePsp` carries P6 until then |
+| S-08 | P8-28 (EXP-16) | The shard move under load; also needs S-02 |
+
 | S | Question | Pass condition | Updates | Fallback |
 | --- | --- | --- | --- | --- |
 | S-01 | Does the named toolchain work together? Thin slice: Boot 4.1.2, Modulith 2.1, jMolecules, Spring Data JDBC with records, Jackson 3, Error Prone and NullAway on JDK 25, jqwik, ArchUnit, Testcontainers, OpenAPI generator, Gateway Server WebMVC, ShedLock, Resilience4j, Bucket4j | Slice builds; each library's test passes; versions recorded | DR-06, DR-10, DOC-11 | Named replacement per library, or a new DR |
@@ -592,23 +643,23 @@ Goal: every decision and experiment that fixes schemas and contracts is settled,
 | --- | --- | --- | --- | --- |
 | P0-00 | Doc gate: none required; inputs are the original SDD, the register and this plan | Both files in `Review` | — | — |
 | P0-01 | Owner reviews the decision register, starting with P1-blocking and ⚠ entries | Every P1-blocking and P2-blocking DR is `Decided` or `Changed`; decision log updated | P0-00 | Register |
-| P0-02 | Run S-01 | Spike note; DOC-11 first version | P0-01 | DOC-11 |
-| P0-03 | Run S-02 | Spike note; DDL in DOC-14 proved | P0-01 | DOC-14 |
-| P0-04 | Run S-03 | Spike note; connector JSON in DOC-24 | P0-01 | DOC-24 |
-| P0-05 | Run S-04 | Spike note; numbers in DOC-10 | P0-01 | DOC-10 |
-| P0-06 | Run S-05 | Spike note; numbers in DOC-17 | P0-01 | DOC-17 |
-| P0-07 | Run S-06 | Spike note; resource table in DOC-73 | P0-01 | DOC-73 |
-| P0-08 | Run S-07, may finish as late as P5 | Spike note; PSP named | P0-01 | DOC-32 |
-| P0-09 | Run S-08 | Spike note; steps in DOC-25 | P0-03 | DOC-25 |
-| P0-10 | Run S-09, may finish as late as P2 | Spike note; client in DOC-11 | P0-02 | DOC-30 |
+| P0-02 | **Deferred.** Run S-01 before P1-01 | Spike note; DOC-11 versions confirmed. Until then DOC-11 is `unverified (S-01)` | P0-01 | DOC-11 |
+| P0-03 | **Deferred.** Run S-02 before P2-02 | Spike note; DDL in DOC-14 proved. Until then `unverified (S-02)` | P0-01 | DOC-14 |
+| P0-04 | **Deferred.** Run S-03 before P3-01 | Spike note; connector JSON in DOC-24 confirmed. Until then `unverified (S-03)` | P0-01 | DOC-24 |
+| P0-05 | **Deferred.** Run S-04 before P1-11 | Spike note; numbers in DOC-10 confirmed. Until then `unverified (S-04)` | P0-01 | DOC-10 |
+| P0-06 | **Deferred.** Run S-05 before P5-01 | Spike note; numbers in DOC-17 confirmed. Until then `unverified (S-05)` | P0-01 | DOC-17 |
+| P0-07 | **Deferred.** Run S-06 before P1-11 | Spike note; resource table in DOC-73 confirmed. Until then `unverified (S-06)` | P0-01 | DOC-73 |
+| P0-08 | **Deferred.** Run S-07 before P6-00 | Spike note; PSP named | P0-01 | DOC-32 |
+| P0-09 | **Deferred.** Run S-08 before P8-28 | Spike note; steps in DOC-25 confirmed. Until then `unverified (S-08)` | P0-03 | DOC-25 |
+| P0-10 | **Deferred.** Run S-09 before P3-10 | Spike note; client in DOC-11 confirmed. Until then `unverified (S-09)` | P0-02 | DOC-30 |
 | P0-11 | Write DOC-06 | Minimum term list complete | P0-01 | DOC-06 |
 | P0-12 | Write DOC-01…05 | `FR-xx.y` with real numbers; UC-01…26 per template; feature catalog with cut steps | P0-11 | DOC-01…05 |
-| P0-13 | Write DOC-07, DOC-08 skeleton, DOC-10, DOC-11, DOC-12, DOC-13, and ADR-0001…0004, 0014…0019, 0023 | Data ownership table complete; each ADR `Accepted` | P0-12, P0-02…07 | DOC-07…13 |
-| P0-14 | Write DOC-14, DOC-15 (`platform`), DOC-19, DOC-20 skeleton, DOC-25, DOC-26 | DDL runs on PostgreSQL 18 through PgBouncer; permission test matrix listed | P0-13, P0-03, P0-09 | DOC-14, 15, 19, 20, 25, 26 |
+| P0-13 | Write DOC-07, DOC-08 skeleton, DOC-10, DOC-11, DOC-12, DOC-13, and ADR-0001…0004, 0014…0019, 0023 | Data ownership table complete; each ADR `Accepted`; values that rest on a deferred spike are tagged `unverified (S-xx)` | P0-12 | DOC-07…13 |
+| P0-14 | Write DOC-14, DOC-15 (`platform`), DOC-19, DOC-20 skeleton, DOC-25, DOC-26 | DDL applies cleanly on PostgreSQL 18 (hold time and PgBouncer behavior not measured: `unverified (S-02)`); permission test matrix listed | P0-13 | DOC-14, 15, 19, 20, 25, 26 |
 | P0-15 | Write DOC-42 and DOC-43 skeletons, DOC-44, DOC-52, DOC-72, DOC-73, DOC-76, DOC-80, DOC-81 with EXP-15 and EXP-17 | Local commands listed; CI stages listed; test prefixes indexed | P0-14 | DOC-42, 43, 44, 52, 72, 73, 76, 80, 81 |
 | P0-16 | Review M0 | `python3 check_docs.py docs` has no E1 or E2 for written documents; Owner approves plan to `Approved v1.0` | P0-15 | This plan |
 
-**Exit criteria (M0):** every P1-gated document `Approved`; S-01…06 and S-08 concluded; S-07 and S-09 have a date; every P1-blocking and P2-blocking DR decided.
+**Exit criteria (M0):** every P1-gated document `Approved`; every P1-blocking and P2-blocking DR decided. Spikes S-01…S-09 are deferred: no spike note is required, and each has the "must run before" task above.
 
 ### Phase 1: Foundation and rules
 
@@ -641,7 +692,7 @@ Goal: the financial core runs and survives kills before anything is built on it.
 
 | ID | Task | Output and acceptance | Depends on | Documents |
 | --- | --- | --- | --- | --- |
-| P2-00 | Doc gate: DOC-18, 21, 22, 23, 24, 35, 37, 38, 41, 45; DOC-46 (FL-02…07); DOC-51 (FL-25, 26, 27, 29, 30, 33); DOC-53 (reservation, account, charge, platform); DOC-79 with RB-01, 05, 06, 07, 08, 21; EXP-01, 02, 04, 05, 06, 12; ADR-0005…0008, 0025 | `Approved` | M1 | — |
+| P2-00 | Doc gate: DOC-18, 21, 22, 23, 24, 35, 37, 38, 41, 45; DOC-83 (kernel, users, mode grants); DOC-84 (skeleton: realms, issuer map, door); DOC-46 (FL-02…07); DOC-51 (FL-25, 26, 27, 29, 30, 33, 34, 35, 37); DOC-53 (reservation, account, charge, platform); DOC-79 with RB-01, 05, 06, 07, 08, 21; EXP-01, 02, 04, 05, 06, 12; ADR-0005…0008, 0025, 0026, 0027 | `Approved` | M1 | — |
 | P2-01 | `shared.kernel`: `Money`, `Currency`, `TenantId`, `AccountId`, public ID codec, shard vectors | Property test: `Money` never loses a minor unit; ID codec round-trips; vectors pass in two languages | P2-00 | DOC-25, DOC-14 |
 | P2-02 | Ledger migrations of DOC-14; `PartitionMaintenance` | Applies on both shard databases; next-month partition appears; a missing trigger fails a test | P2-01 | DOC-14, DOC-20, DOC-37 |
 | P2-03 | `Wallet` aggregate: `hold`, standing, Balance Policy; sealed results | Test table: example of SDD 6.4 gives 7,000,000; jqwik sequences match a model wallet | P2-01 | DOC-21 |
@@ -655,11 +706,11 @@ Goal: the financial core runs and survives kills before anything is built on it.
 | P2-11 | Release and extend, with every edge state of DR-28 | Test per table row, including `402` on increase and lifetime limit | P2-09 | DOC-22 |
 | P2-12 | Expiry: sweep drain, `billing.jobs.v1`, `ledger-jobs` consumer | Test: 2,000 expired drain in repeated batches; a lost message delays only; `reservation.expired` written once | P2-09, P2-22 | DOC-22, DOC-37, DOC-46 |
 | P2-13 | Race suite: every row of SDD 7.4 with barriers | All rows pass 1,000 times; 0 invariant violations | P2-10…12 | DOC-22 |
-| P2-14 | Platform admin: tenants, Client Systems with parameters, grants, account saga, mode and limit | Crash at each saga step resumes; `LIMIT_CHANGE` written; natural key returns `409` with `id` | P2-04 | DOC-51, DOC-53, DOC-15 |
+| P2-14 | Platform admin: tenants, Client Systems with parameters, grants, account saga, mode and limit. Each endpoint declares its permission code (P2-27); the Client-creation saga also creates the Client's realm (P2-29) | Crash at each saga step resumes; `LIMIT_CHANGE` written; natural key returns `409` with `id` | P2-04, P2-27 | DOC-51, DOC-53, DOC-15 |
 | P2-15 | Manual adjustment, debit and credit, and reversal, partial | Debit and credit post per templates; second reversal over the amount is `409 reversal_exceeds_charge` | P2-04 | DOC-21, DOC-51 |
 | P2-16 | Gateway: routes, JWT, Bucket4j by client and tenant, CORS | Invalid token `401`; limit `429` with `Retry-After`; unauthenticated paths limited to the named two | P2-00 | DOC-38 |
 | P2-17 | Error mapping: sealed results to RFC 9457, `code`, `trace_id` | Each code of SDD 17.3 so far has a test | P2-09 | DOC-44, DOC-52 |
-| P2-18 | Authorization of DR-66 so far, per-account limit, Finance Admin header and queue rule | One allow and one deny test per matrix row | P2-07 | DOC-41, DOC-26 |
+| P2-18 | Authorization of DR-66 as amended by DR-109 so far, per-account limit, Finance Admin header and queue rule | One allow and one deny test per matrix row, and per permission bit used so far | P2-07, P2-27, P2-28 | DOC-41, DOC-26 |
 | P2-19 | Invariant checks in `deploy/sql/invariants`, `wallet_checkpoint`, recheck-on-primary | Injected corruption of each kind raises a row and the alert; checkpoint run is idempotent | P2-04, P2-22 | DOC-18, DOC-14 |
 | P2-20 | Read APIs: account, list, transactions, movements with `at`, charge with snapshot, reservations | `GET` reconstructs `balance`, `held` and `available` at a past time after a limit change | P2-10 | DOC-53, DOC-51 |
 | P2-21 | Metrics, dashboards, alerts, runbooks RB-01, 05, 06, 07, 08, 21 | Each alert fires in a test; each runbook's commands run verbatim | P2-19 | DOC-42, DOC-79 |
@@ -668,8 +719,11 @@ Goal: the financial core runs and survives kills before anything is built on it.
 | P2-24 | Run EXP-12 | 0 rows across tenants; RLS overhead reported | P2-20 | DOC-81 |
 | P2-25 | Run EXP-02 provisionally on a rented machine | `FOR NO KEY UPDATE` p95 at 50 per second recorded and marked provisional; saturation compared; gate holds ≤ 15 connections | P2-13 | DOC-81 |
 | P2-26 | Smoke suite: reserve, commit and a pod kill on mini | EXP-17 second stage passes in CI | P2-13 | DOC-73, DOC-81 |
+| P2-27 | Permission kernel: `PlatformPermission` and `ClientPermission` enums, the two `*-permission-catalog.lock` files, `PermissionSet` (`long[4]` ↔ `bit(256)`), wildcard expansion, `PermissionService.require`, no-escalation and no-self-edit rules | Tests: a changed, reused or removed bit fails the build in each catalog; Java ↔ SQL round-trip of all 256 bits; `catalog.*` stores bits and a later new permission is not granted; a grant above the setter's own bits is `403 grant_exceeds_own_permissions`; a platform user cannot be given a Client bit and the reverse (type error at compile time) | P2-02, P2-07 | DOC-83, DOC-26, DOC-41 |
+| P2-28 | `platform.client_pricing_mode`, `platform.platform_user` and `platform.client_user` migrations; mode grant and expire; platform-user and Client-user endpoints; `GET /v1/me`; `GET /v1/permissions/catalog`; `x-permission` on every `/v1/admin/*` and `/v1/console/*` operation | Tests: overlapping periods refused by the exclusion constraint; only the expiry columns change; the same email is accepted once `ACTIVE` in the platform and in each of two Clients, and refused twice in one space (`409 email_in_use`); an `ENDED` user's email is reusable; build fails if an operation lacks `x-permission` or names an unknown code; a deactivated or narrowed user is refused on the very next call, with no cache | P2-27, P2-14 | DOC-83, DOC-15, DOC-53, DOC-51 |
+| P2-29 | Spaces: issuer → space map and JWKS per issuer, the space door (`403 wrong_space`), `billing_client_id` check, `billing-realm-provisioner` and realm creation in the Client saga, reserved and immutable Client `code`, bootstrap command for the first platform user | Tests: a platform token on a Client endpoint and the reverse are `403 wrong_space`; Client 1's token on Client 2's data is refused; reserved codes are refused; a realm exists after the saga and a crash mid-saga resumes; bootstrap refuses to run twice; the same email signs in separately in two realms | P2-14, P2-28 | DOC-84, DOC-83, DOC-26, DOC-41 |
 
-**Exit criteria (M2):** EXP-01: exactly 100 of 1,000 succeed. EXP-04: 1 effect per key. EXP-05 after 1 hour: 0 violations. EXP-06: exactly 1 charge each on 10,000. EXP-12: 0 rows. Demo: a Client reserves and commits against a funded account through the gateway on mini.
+**Exit criteria (M2):** Every space-crossing request is refused (platform ↔ Client, Client 1 ↔ Client 2), and one email works in three spaces. The generated permission matrix passes: for every permission bit used so far, bit set is allowed and bit cleared is `403 permission_denied`; platform user without `finance.refund.approve` cannot approve. EXP-01: exactly 100 of 1,000 succeed. EXP-04: 1 effect per key. EXP-05 after 1 hour: 0 violations. EXP-06: exactly 1 charge each on 10,000. EXP-12: 0 rows. Demo: a Client reserves and commits against a funded account through the gateway on mini.
 
 ### Phase 3: Outbox, webhooks and feed
 
@@ -704,18 +758,19 @@ Goal: real prices replace the fixed price, with no state changed during rating.
 
 | ID | Task | Output and acceptance | Depends on | Documents |
 | --- | --- | --- | --- | --- |
-| P4-00 | Doc gate: DOC-15 (`pricing`), DOC-27, DOC-46 (FL-01), DOC-51 (FL-28), DOC-53 (estimates, pricing) | `Approved` | M2 | — |
-| P4-01 | `pricing` migrations, `client_product`, meters, publish trigger | Updating a `PUBLISHED` version fails at the database | P4-00 | DOC-15, DOC-27 |
+| P4-00 | Doc gate: DOC-15 (`pricing`), DOC-27, DOC-83 final, DOC-46 (FL-01), DOC-51 (FL-28, FL-36), DOC-53 (estimates, pricing, console); DR-104 and DR-108 decided | `Approved` | M2 | — |
+| P4-01 | `pricing` migrations, `client_product`, meters, publish trigger; `price_plan.pricing_mode` (immutable) and `managed_by` on plan, product and meter | Updating a `PUBLISHED` version fails at the database; changing `pricing_mode` fails; a plan without a mode cannot be inserted | P4-00 | DOC-15, DOC-27 |
 | P4-02 | `RatingFunction`: five models, `unit_quantity`, clamps, increments, rounding | Test table per model; matrix numbers reproduced by hand-calculated cases; laws of DR-45; the VOLUME example gives 480,000 | P4-00 | DOC-27 |
-| P4-03 | Versions: draft, publish validation, `effective_from`, immutable cache | Invalid tiers refuse; past `effective_from` refuses | P4-01 | DOC-27 |
+| P4-03 | Versions: draft, publish validation, `effective_from`, immutable cache; mode rules of DR-104 and active-mode check of DR-105 | Invalid tiers refuse; past `effective_from` refuses; each mode has a passing and a failing component set (`422 pricing_mode_mismatch`); publish on an expired mode is `403 pricing_mode_not_granted` | P4-01 | DOC-27 |
 | P4-04 | Plan resolution with assignment and default; 30 s cache | Each resolution step tested; wrong currency is `422 no_applicable_price` | P4-03 | DOC-27 |
-| P4-05 | `POST /v1/estimates`, draft preview | No row changes during an estimate; only `finance_admin` previews a draft | P4-02, P4-04 | DOC-53, DOC-46 |
+| P4-05 | `POST /v1/estimates`, draft preview | No row changes during an estimate; only a user holding `pricing.price_plan.read` on platform scope previews a draft | P4-02, P4-04 | DOC-53, DOC-46 |
 | P4-06 | Replace `FixedPriceEngine`: pin at reserve, rate at commit, write snapshot | Price change during a job keeps the pinned version; snapshot explains the amount | P4-05 | DOC-22, DOC-27 |
 | P4-07 | Retirement job, `price_plan.published` | Retired version still rates a pinned commit | P4-03 | DOC-27, DOC-37 |
-| P4-08 | Admin endpoints: plans, versions, assignments, products | Allow and deny per role; draft-only `PATCH` | P4-03 | DOC-53, DOC-51 |
+| P4-08 | Admin endpoints: plans, versions, assignments, products | Allow and deny per permission bit; draft-only `PATCH`; extending actions refused on an expired mode, drafts, deletes and reads not | P4-03 | DOC-53, DOC-51 |
 | P4-09 | Rerun EXP-12 and add new tables to permission tests | 0 rows across tenants | P4-08 | DOC-81, DOC-19 |
+| P4-10 | Console and managers: `/v1/console/*` family on the same handlers as the `/v1/admin/client-systems/{id}/…` family; effective modes (`client_user.mode_mask` AND the Client's active modes); `managed_by` rule; resources needing a manager; reassign; deactivate with `reassign_to` | Tests: bit without mode is refused, mode without bit is refused; a non-manager is `403 not_resource_manager` unless `access.resource.manage_any`; reassign to a user without the mode is `422 assignee_lacks_permission`; **after the Client's mode expires, a new plan and a publish are refused while an open reservation commits, a running subscription is invoiced and existing plans still rate and estimate**; a deactivated user is refused on the next call while the plans they made keep billing | P4-08, P2-28 | DOC-83, DOC-27, DOC-53, DOC-51 |
 
-**Exit criteria (M4):** All five models pass property tests. The SDD's worked examples produce exact amounts through the API. Module tests cover time-based and workload-based on both account modes.
+**Exit criteria (M4):** The mode × permission matrix of DR-109 passes (six modes, client mode active and expired, user mode set and cleared). Expiring a Client's mode leaves every resource usable, and a revoked user stops on the next call. All five models pass property tests. The SDD's worked examples produce exact amounts through the API. Module tests cover time-based and workload-based on both account modes.
 
 ### Phase 5: Usage Metering
 
@@ -776,7 +831,7 @@ Goal: an invoice is an immutable statement of charges the Ledger already recorde
 | P7-01 | `invoicing` migrations, `account_settings`, floors | A floor below the environment value is refused | P7-00 | DOC-15, DOC-33 |
 | P7-02 | Cycle calculator | Property tests: month ends, leap years, time zones, sub-day cycles; no gap or overlap | P7-01 | DOC-33 |
 | P7-03 | Cycle start and close job over `CrossTenantScan`; mode snapshot | Rerun is harmless; a pending length or mode applies at next start | P7-02 | DOC-33, DOC-37 |
-| P7-04 | Subscriptions API and state machine; first fee | Fixture numbers for `storage.basic`; `fee_unpaid` once per cycle; response has `current_cycle` | P7-03 | DOC-33, DOC-50 |
+| P7-04 | Subscriptions API and state machine; first fee | Fixture numbers for `storage.basic`; `fee_unpaid` once per cycle; response has `current_cycle`; create and change-to refuse an inactive mode with `403 pricing_mode_not_granted`, cancel never does | P7-03 | DOC-33, DOC-50 |
 | P7-05 | Mid-cycle change with proration, upgrades and downgrades | Formula holds at second precision; two changes in one cycle both post; no-proration applies next cycle | P7-04 | DOC-33 |
 | P7-06 | Fee retry under the wallet lock | Top-up not changing standing still posts; a race cannot overdraw on `SKIP`; dropped at cycle end | P7-04 | DOC-33, DOC-50 |
 | P7-07 | `invoicing-projection` consumer | Replay is a no-op; reversal and credit are negative | P7-01 | DOC-33 |
@@ -794,8 +849,8 @@ Goal: the main system is complete on staging, with every claimed number measured
 
 | ID | Task | Output and acceptance | Depends on | Documents |
 | --- | --- | --- | --- | --- |
-| P8-00 | Doc gate: DOC-15 (rest), DOC-20 final, DOC-34, DOC-36, DOC-49 (FL-20, 21), DOC-51 (FL-30 final, 32, 33), DOC-53 (rest), DOC-56…71, DOC-74, DOC-75, DOC-77, DOC-78; RB-02, 17, 18, 19, 20; EXP-03, 13, 14, 16; DR-91 decided | `Approved` | M7 | — |
-| P8-01 | Portal foundation: stack of DR-89, OIDC, generated client, shell, role routing, i18n, config, chart | Login works by role; tokens in memory; no inline scripts under CSP | P8-00 | DOC-56, DOC-57, DOC-58, DOC-59 |
+| P8-00 | Doc gate: DOC-15 (rest), DOC-20 final, DOC-34, DOC-36, DOC-49 (FL-20, 21), DOC-51 (FL-30 final, 32, 33), DOC-53 (rest), DOC-56…71, DOC-84 final, DOC-85…90, DOC-74, DOC-75, DOC-77, DOC-78; RB-02, 17, 18, 19, 20; EXP-03, 13, 14, 16; DR-91 decided | `Approved` | M7 | — |
+| P8-01 | Front-end foundation: monorepo with `apps/platform-dashboard`, `apps/client-dashboard`, `apps/customer-portal` and shared packages (DR-111); stack of DR-89, OIDC per space, generated client per audience, shell, i18n, per-request `<base href>` and `/config.js`, ingress for host and path (DR-110), chart | Login works in each space; tokens in memory; no inline scripts under CSP; the dependency rule fails the build if a Client or Customer bundle imports a platform module or contains `/v1/admin`; the same image serves `HOST` and `PATH` | P8-00, P2-29 | DOC-56, DOC-57, DOC-58, DOC-59, DOC-84 |
 | P8-02 | Screen: Account overview | Acceptance of DOC-60 | P8-01 | DOC-60 |
 | P8-03 | Screen: Top up and payment result | Acceptance of DOC-61; redirect alone shows "Confirming payment" | P8-01 | DOC-61 |
 | P8-04 | Screen: Transactions | Acceptance of DOC-62 | P8-01 | DOC-62 |
@@ -806,7 +861,7 @@ Goal: the main system is complete on staging, with every claimed number measured
 | P8-09 | Screen: Refund approvals | Acceptance of DOC-67 | P8-01 | DOC-67 |
 | P8-10 | Screen: Reconciliation | Acceptance of DOC-68 | P8-15 | DOC-68 |
 | P8-11 | Screen: Tenants and limits | Acceptance of DOC-69 | P8-01 | DOC-69 |
-| P8-12 | Screen: Client Systems and grants | Acceptance of DOC-70 | P8-01 | DOC-70 |
+| P8-12 | Screen: Client Systems and grants | Acceptance of DOC-70, including pricing-mode grant and expire, Client users and the Client's realm | P8-01 | DOC-70 |
 | P8-13 | Screen: Webhook deliveries | Acceptance of DOC-71 | P8-01 | DOC-71 |
 | P8-14 | Reconciliation engine: runs, report fetch, comparison, automatic query path, fee rule | Each difference of SDD 15.1 raises or resolves correctly; settlement near midnight raises nothing false | P8-00 | DOC-34 |
 | P8-15 | Exceptions API, resolve with reason, adjustment link | Resolve moves money only through an adjustment journal | P8-14 | DOC-34, DOC-49 |
@@ -818,14 +873,20 @@ Goal: the main system is complete on staging, with every claimed number measured
 | P8-21 | `values-prod.yaml` with build tests on floors, `FakePsp`, allow-list | Each forbidden value fails the build | P8-20 | DOC-75 |
 | P8-22 | Full observability: Loki, Tempo, dashboards, SLO and burn-rate alerts, channels | A request's trace crosses Kafka to a webhook attempt; every alert has a runbook | P8-20 | DOC-42 |
 | P8-23 | Security hardening: scans, signing, NetworkPolicies, STRIDE review, MFA | Scans clean or waived in writing; denied network path fails a test | P8-20 | DOC-41 |
-| P8-24 | Playwright E2E: top-up through webhook delivery and all screens' cases | Suite green on mini in CI | P8-02…13 | DOC-80 |
+| P8-24 | Playwright E2E: top-up through webhook delivery and all screens' cases of the three front-ends, run in `PATH` mode on mini and in `HOST` mode on staging | Suite green on mini in CI; the same suite passes in both address forms; a wrong-space sign-in ends logged out | P8-02…13, P8-30…35 | DOC-80 |
 | P8-25 | Run EXP-03 and EXP-02 final | p95 ≤ 100 ms and p99 ≤ 250 ms at 500 per second; primary limit reported; pool sizes reviewed | P8-20, P8-21 | DOC-81, DOC-10 |
 | P8-26 | Run EXP-13 | 100% detected within 24 hours | P8-14, P8-16 | DOC-81 |
 | P8-27 | Run EXP-14 | RPO 0, RTO ≤ 5 minutes, relay resumes, 0 violations; RB-20 verified | P8-20 | DOC-81, DOC-79 |
 | P8-28 | Run EXP-16 and write the playbook | Block ≤ 30 s, 0 lost events, no API change; RB-17 verified | P8-20 | DOC-81, DOC-78 |
 | P8-29 | Remaining runbooks RB-02, 18, 19 | Commands verified on staging | P8-19, P8-14 | DOC-79 |
+| P8-30 | Screen (Client dashboard): Overview | Acceptance of DOC-85; shows an expired mode and the banner | P8-01 | DOC-85 |
+| P8-31 | Screen (Client dashboard): Users and permissions | Acceptance of DOC-86; a setter cannot grant a bit or mode they lack | P8-01 | DOC-86 |
+| P8-32 | `packages/pricing-editor`, and screen (Client dashboard): Price plans; the platform Price plans screen (P8-08) moves onto the same package | Acceptance of DOC-87; extending actions disabled on an expired mode and still refused by the server | P8-01 | DOC-87, DOC-66 |
+| P8-33 | Screen (Client dashboard): Products and meters | Acceptance of DOC-88 | P8-01 | DOC-88 |
+| P8-34 | Screen (Client dashboard): Resources and reassignment | Acceptance of DOC-89; reassign to a user lacking the mode shows the missing item | P8-01 | DOC-89 |
+| P8-35 | Screen (Platform dashboard): Platform users and permissions | Acceptance of DOC-90 | P8-01 | DOC-90 |
 
-**Exit criteria (M8):** All recorded: EXP-02, 03, 13, 14, 16. Portal top-up through webhook delivery passes end to end. Restore drill done. Staging runs a real PSP sandbox.
+**Exit criteria (M8):** The three front-ends are separate builds and the bundle-isolation rule passes; Playwright passes in both `PATH` and `HOST` address forms. All recorded: EXP-02, 03, 13, 14, 16. Portal top-up through webhook delivery passes end to end. Restore drill done. Staging runs a real PSP sandbox.
 
 ### Phase 9: Demo Client and coverage matrix
 
@@ -845,8 +906,8 @@ Goal: every billing type works end to end through the public contract only.
 | P9-09 | Page, OIDC login, `/demo/*` API | No access without `demo_operator`; only the receiver is open | P9-03 | DOC-39 |
 | P9-10 | Chart on mini and staging; staging DNS; allow-list on mini only | Build test fails if production refers to the chart | P9-09 | DOC-39, DOC-74 |
 | P9-11 | Fixtures and runner for 12 cells | All pass; numbers hand-reviewed; cleanup and sweep on staging | P9-05, P9-10 | DOC-40 |
-| P9-12 | Scenarios outside the matrix | 9 scenarios of SDD 11.8 pass; storm per DR-34 | P9-11 | DOC-40 |
-| P9-13 | Enum-coverage test; EXP-18 with both sabotage runs | Missing cell fails the build; wrong amount and wrong model each fail; 12 of 12 in ≤ 15 minutes | P9-12 | DOC-40, DOC-81 |
+| P9-12 | Scenarios outside the matrix | 9 scenarios of SDD 11.8 and the added "Mode expiry and user revoke" pass; storm per DR-34 | P9-11 | DOC-40 |
+| P9-13 | Enum-coverage test (charge model, account mode and `pricing_mode`); EXP-18 with both sabotage runs | Missing cell fails the build; wrong amount and wrong model each fail; 12 of 12 in ≤ 15 minutes | P9-12 | DOC-40, DOC-81 |
 | P9-14 | Smoke moves from WireMock to the Demo Client; matrix joins CI | EXP-17 final; EXP-18 on each merge to `main` and each staging release | P9-13 | DOC-73, DOC-76 |
 | P9-15 | Rehearse the demo script on mini and staging, with fallback | All 9 steps with expected numbers, on both | P9-14 | DOC-82 |
 | P9-16 | Finalize documents, close open questions, tag `v1.0.0` | `check_docs.py` clean; all results recorded; release tag and signed images | P9-15 | DOC-13, DOC-81 |
@@ -881,15 +942,21 @@ Goal: every billing type works end to end through the public contract only.
 | FR-22 | DOC-30, DOC-48 | P3-05…11 | EXP-10; signature vectors |
 | FR-23 | DOC-31 | P3-12 | Module test; EXP-18 condition 4 |
 | FR-24 | DOC-23 | P2-05 | EXP-04; storm scenario in EXP-18 |
-| FR-25 | DOC-19, DOC-26 | P1-10, P2-07, P2-18, P3-07 | EXP-12; visibility tests |
+| FR-25 | DOC-19, DOC-26 | P1-10, P2-07, P2-18, P3-07 | EXP-12; visibility tests; Client user reach no tenant data |
 | FR-26 | DOC-34 | P8-14, P8-15 | EXP-13 |
 | FR-27 | DOC-35 | P2-08, P3-13 | Module test: each admin action has a row; union query test |
 | FR-28 | DOC-36 | P8-17 | Control totals and sequence test |
-| FR-29 | DOC-56…71 | P8-01…13, P8-24 | Playwright |
+| FR-29 | DOC-56…71, DOC-85…90 | P8-01…13, P8-24, P8-30…35 | Playwright, in both address forms |
 | FR-30 | DOC-07, DOC-09 | P3-03, P1-03 | Contract test; OpenAPI review rule; EXP-15 |
 | FR-31 | DOC-14, DOC-21 | P2-04, P2-20 | Property test; past-time query test; invariant checks |
 | FR-32 | DOC-39 | P9-01…10 | Build tests; EXP-18; demo script |
 | FR-33 | DOC-40 | P9-11, P9-12, P9-13 | EXP-18 |
+| FR-34 | DOC-15, DOC-27, DOC-83, DOC-53 | P2-28, P4-03, P7-04, P8-12 | Exclusion-constraint test; extending-action refusals on an expired mode; EXP-18 scenario "Mode expiry and user revoke" |
+| FR-35 | DOC-15, DOC-83, DOC-53 | P2-28, P4-10 | Mode × bit matrix; effective-mode test; no-escalation test; Client user reaches no tenant data |
+| FR-36 | DOC-83, DOC-41, DOC-53 | P2-27, P2-18, P2-28 | Lock-file tests for both catalogs; Java ↔ SQL round-trip; generated permission matrix; every operation has `x-permission` |
+| FR-37 | DOC-83, DOC-51, DOC-27 | P2-28, P4-10 | Resource-survival tests for both revocations; immediate-refusal test; reassign test |
+| FR-38 | DOC-83, DOC-84, DOC-26, DOC-15 | P2-28, P2-29, P8-01 | Space-crossing tests; same email in three spaces; bundle-isolation rule; no shared tables, catalogs or endpoints |
+| FR-39 | DOC-84, DOC-38, DOC-56 | P2-29, P8-01, P8-24 | One Playwright suite in `HOST` and `PATH` mode; token for Client 2 on Client 1's page is refused |
 | NFR-01 | DOC-10, DOC-21, DOC-22 | P2-13, P2-23 | EXP-01, EXP-05, EXP-06 |
 | NFR-02 | DOC-10 | P8-25 | EXP-03 |
 | NFR-03 | DOC-21 | P2-25, P8-25 | EXP-02 |
@@ -907,7 +974,7 @@ Goal: every billing type works end to end through the public contract only.
 | NFR-15 | DOC-12 | P1-03, P1-04 | EXP-15 |
 | NFR-16 | DOC-20, DOC-35 | P8-16, P8-18, P8-26 | EXP-13 |
 | NFR-17 | DOC-21, DOC-10 | P2-06, P2-25, P8-25 | EXP-02 |
-| NFR-18 | DOC-25, DOC-78 | P0-09, P8-28 | EXP-16 |
+| NFR-18 | DOC-25, DOC-78 | P0-09 (deferred), P8-28 | EXP-16 |
 | NFR-19 | DOC-73 | P1-11, P2-26, P3-17, P9-14 | EXP-17 |
 | NFR-20 | DOC-40 | P9-11, P9-12, P9-13 | EXP-18 |
 
@@ -957,19 +1024,26 @@ Goal: every billing type works end to end through the public contract only.
 | `oasdiff` or schema tests miss a breaking change | A Client-facing break after a release | Generated Demo Client from P9 consumes the same contract; EXP-18 fails if it breaks |
 | Ten-year retention makes `journal` large in place (DR-97) | Partition sizes in DOC-10 trend over plan | Archive design as a later DR; partition by shard allows moving ranges |
 | Hand-written UI tasks wait on endpoints not built | P8 blocked | DR-87 lists endpoints; DOC-53 complete before P8, with `oasdiff` protecting them |
+| Spikes are deferred, so P1-gated documents rest on unmeasured values and a spike failure later forces rework of approved documents (DOC-10, 11, 14, 24, 25, 73) | A spike fails at its "must run before" task | Every unmeasured value is tagged `unverified (S-xx)` so the rework set is searchable; run each spike before its named task (§5); fallbacks above; open a new DR and revise the tagged text |
+| The permission bitmask is wrong once data exists: a renumbered or reused bit silently changes who may do what | Lock-file test fails, or an unexpected `403` after a deploy | `permission-catalog.lock` build test; retired permissions keep their bit; wildcards expand at write time only (DR-106) |
+| A checked rule on revoked users reads a cache, so a revoked person keeps acting | A deactivated user's call succeeds | Mutating and revocation checks read the primary with no cache (DR-107); a test deactivates and calls at once |
+| Permission and mode rules multiply the authorization test count | Matrix tests exceed the CI budget | Matrix is generated from `x-permission` and the catalog; run the full six-mode matrix on `main`, a sample per pull request |
+| A realm per Client is heavy to operate, or realm creation fails mid-saga | Saga stuck at the realm step, or Keycloak memory over plan | The step is idempotent and resumable (P2-29); at most about 20 Clients; fallback is one shared realm with duplicate emails allowed (DR-107) |
+| In `PATH` mode every space shares one browser origin | A script of one dashboard could read another's page | Tokens are memory-only, all scripts are ours, CSP forbids inline scripts, and `HOST` mode is the production default (DR-110) |
 
-## 9. Start now: the first 10 tasks
+## 9. Start now: the first 9 tasks
 
-1. Owner decides the P1-blocking and P2-blocking DRs (P0-01), reading ⚠ entries first: DR-11, DR-13, DR-38, DR-45, DR-56, DR-62, DR-37, DR-71.
-2. Run spikes S-01, S-02, S-03, S-04 and S-06 in parallel (P0-02…05, P0-07). Start S-07 once the Owner names the PSP candidates, since it needs sandbox access.
-3. Run S-08 once S-02's DDL works (P0-09), then S-05 (P0-06).
-4. Write the glossary DOC-06 (P0-11).
-5. Write requirements and use cases, DOC-01…05 (P0-12).
-6. Write architecture and P1 ADRs, DOC-07…13 (P0-13).
-7. Write the data model with DDL tried on a real database, DOC-14, DOC-15 `platform`, DOC-19, DOC-20, and DOC-25, DOC-26 (P0-14).
-8. Write foundation operations and test documents (P0-15).
-9. Review M0 (P0-16) and move this plan to `Approved v1.0`.
-10. Start P1, and write P2's documents (P2-00) in parallel with P1.
+Spikes S-01…S-09 (P0-02…10) are deferred and are not in this list; see the "must run before" table in §5, Phase 0.
+
+1. Owner decides the P1-blocking and P2-blocking DRs (P0-01), reading ⚠ entries first: DR-11, DR-13, DR-38, DR-45, DR-56, DR-62, DR-37, DR-71. A 🔬 DR is decided on its proposal and tagged `unverified (S-xx)`.
+2. Write the glossary DOC-06 (P0-11).
+3. Write requirements and use cases, DOC-01…05 (P0-12).
+4. Write architecture and P1 ADRs, DOC-07…13 (P0-13).
+5. Write the data model with DDL applied on a real database, DOC-14, DOC-15 `platform`, DOC-19, DOC-20, and DOC-25, DOC-26 (P0-14).
+6. Write foundation operations and test documents (P0-15).
+7. Review M0 (P0-16) and move this plan to `Approved v1.0`.
+8. Run S-01 as the first step of P1-01, then start P1 (§5).
+9. Write P2's documents (P2-00) in parallel with P1.
 
 ## Appendix A: Shared templates
 

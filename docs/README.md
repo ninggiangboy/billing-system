@@ -97,6 +97,14 @@ Paths are relative to `docs/`. A path becomes a link when its document is writte
 | DOC-80 | Test strategy (`10-testing/test-strategy.md`) | Not written |
 | DOC-81 | Experiments index (`10-testing/experiments/README.md`) | Not written |
 | DOC-82 | Demo script (`10-testing/demo-script.md`) | Not written |
+| DOC-83 | Access control (`06-design/access-control.md`) | Not written |
+| DOC-84 | Spaces and routing (`06-design/spaces-and-routing.md`) | Not written |
+| DOC-85 | Screen (Client dashboard): Overview (`08-ux-ui/screens/client-overview.md`) | Not written |
+| DOC-86 | Screen (Client dashboard): Users and permissions (`08-ux-ui/screens/client-users.md`) | Not written |
+| DOC-87 | Screen (Client dashboard): Price plans (`08-ux-ui/screens/client-price-plans.md`) | Not written |
+| DOC-88 | Screen (Client dashboard): Products and meters (`08-ux-ui/screens/client-catalog.md`) | Not written |
+| DOC-89 | Screen (Client dashboard): Resources and reassignment (`08-ux-ui/screens/client-resources.md`) | Not written |
+| DOC-90 | Screen (Platform dashboard): Platform users and permissions (`08-ux-ui/screens/platform-users.md`) | Not written |
 
 ADRs (`04-adr/NNNN-*.md`), runbooks (`RB-xx`, under DOC-79) and experiments (`EXP-xx`, under DOC-81) are listed in master plan §3.2.
 
